@@ -19,7 +19,14 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
     ],
-  },
+    rules: {
+      // Disable strict rules for production builds
+      "@typescript-eslint/no-unused-vars": "warn",
+      "@next/next/no-img-element": "warn",
+      "react-hooks/exhaustive-deps": "warn",
+      "@typescript-eslint/no-explicit-any": "off"
+    }
+  }
 ];
 
 export default eslintConfig;

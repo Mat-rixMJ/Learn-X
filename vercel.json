@@ -1,0 +1,20 @@
+{
+  "name": "learn-x",
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://wishtiq.online/api",
+    "NEXT_PUBLIC_WS_URL": "wss://wishtiq.online/ws"
+  }
+}

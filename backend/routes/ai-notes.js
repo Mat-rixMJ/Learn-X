@@ -9,6 +9,10 @@ const execAsync = promisify(exec);
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const pool = require('../config/database');
 
+// Import Gemini AI service
+const GeminiAIService = require('../services/gemini-ai');
+const geminiAI = new GeminiAIService();
+
 // Configure multer for video uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -40,87 +44,66 @@ const upload = multer({
   }
 });
 
-// Ollama AI Analysis service
-const analyzeWithOllama = async (text, contentType = 'lecture') => {
+// Gemini AI Analysis service - Enhanced for educational content
+const analyzeWithGemini = async (content, contentType = 'lecture', title = '', subject = '') => {
   try {
-    const prompt = `
-    Analyze the following ${contentType} content and provide a comprehensive analysis in JSON format:
-
-    Content: "${text}"
-
-    Please provide:
-    1. A clear summary (2-3 sentences)
-    2. 5-8 key points from the content
-    3. 3-5 important questions for review
-    4. 3-5 highlighted concepts or terms
-    5. List of main topics covered
-    6. Difficulty level (Beginner/Intermediate/Advanced)
-    7. Estimated study time
-
-    Return ONLY valid JSON in this format:
-    {
-      "summary": "...",
-      "key_points": ["...", "..."],
-      "important_questions": ["...", "..."],
-      "highlights": ["...", "..."],
-      "topics": ["...", "..."],
-      "difficulty_level": "...",
-      "estimated_time": "X minutes"
-    }
-    `;
-
-    // Call Ollama API
-    const { stdout } = await execAsync(`curl -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d '${JSON.stringify({
-      model: "llama3.2",
-      prompt: prompt,
-      stream: false,
-      options: {
-        temperature: 0.7,
-        max_tokens: 1000
-      }
-    })}'`);
-
-    const response = JSON.parse(stdout);
-    let analysisText = response.response;
+    console.log('🧠 Analyzing content with Gemini AI...');
     
-    // Extract JSON from response
-    const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const analysis = JSON.parse(jsonMatch[0]);
-      return analysis;
+    // Check if Gemini is configured
+    if (!geminiAI.isConfigured()) {
+      console.warn('⚠️  Gemini API not configured, using fallback analysis');
+      return getFallbackAnalysis(content, title, subject);
     }
-
-    // Fallback if JSON parsing fails
-    throw new Error('Could not parse AI response');
-
+    
+    // Use Gemini for text analysis
+    const analysis = await geminiAI.processTextContent(content, title, subject);
+    
+    console.log('✅ Gemini analysis completed successfully');
+    return analysis;
+    
   } catch (error) {
-    console.error('Ollama analysis failed:', error);
-    
-    // Fallback mock analysis
-    return {
-      summary: `Comprehensive analysis of ${contentType} content covering key concepts and important information for learning and review.`,
-      key_points: [
-        "Main concept introduction and overview",
-        "Detailed explanation of core principles",
-        "Practical applications and examples",
-        "Common challenges and solutions",
-        "Best practices and recommendations"
-      ],
-      important_questions: [
-        "What are the main concepts covered?",
-        "How can these ideas be applied practically?",
-        "What are the key takeaways?"
-      ],
-      highlights: [
-        "Critical terminology and definitions",
-        "Important formulas or procedures",
-        "Key insights and conclusions"
-      ],
-      topics: ["Core Concepts", "Applications", "Best Practices"],
-      difficulty_level: "Intermediate",
-      estimated_time: "15-20 minutes"
-    };
+    console.error('❌ Gemini analysis failed:', error);
+    console.log('🔄 Falling back to local analysis...');
+    return getFallbackAnalysis(content, title, subject);
   }
+};
+
+// Enhanced fallback analysis for when Gemini is unavailable
+const getFallbackAnalysis = (content, title, subject) => {
+  const words = content.split(/\s+/);
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  
+  return {
+    summary: `This ${subject} content covers ${title}. Key concepts and information have been extracted for study purposes. ${sentences[0]?.trim() || 'Content analyzed successfully.'}`,
+    key_points: [
+      `Introduction to ${title}`,
+      `Core concepts in ${subject}`,
+      `Important definitions and terminology`,
+      `Practical applications and examples`,
+      `Key takeaways and conclusions`,
+      `Related topics for further study`
+    ].slice(0, Math.min(8, Math.max(4, Math.floor(words.length / 50)))),
+    
+    important_questions: [
+      `What are the main concepts covered in ${title}?`,
+      `How do these concepts apply to ${subject}?`,
+      `What are the key definitions to remember?`,
+      `What examples illustrate these concepts?`,
+      `How does this relate to other topics in ${subject}?`
+    ].slice(0, Math.min(6, Math.max(3, Math.floor(sentences.length / 3)))),
+    
+    highlights: [
+      `${title} fundamentals`,
+      `Key ${subject} principles`,
+      `Important terminology`,
+      `Practical applications`,
+      `Critical concepts`
+    ].slice(0, Math.min(5, Math.max(3, Math.floor(words.length / 100)))),
+    
+    topics: [title, subject, "Core Concepts", "Applications", "Key Terms"],
+    difficulty_level: words.length > 500 ? "Intermediate" : words.length > 200 ? "Beginner" : "Basic",
+    estimated_study_time: `${Math.max(5, Math.ceil(words.length / 200))} minutes`
+  };
 };
 
 // Extract transcript from video using ffmpeg and speech recognition
@@ -157,23 +140,6 @@ const downloadVideoFromUrl = async (videoUrl, filename) => {
   } catch (error) {
     throw new Error('Failed to download video from URL');
   }
-};
-        importance: "high"
-      },
-      {
-        title: "Best Practice",
-        content: "Industry-standard approach for implementing solutions effectively",
-        timestamp: "22:18",
-        importance: "medium"
-      }
-    ],
-    
-    tags: ["fundamentals", "applications", "best-practices", "problem-solving"],
-    difficulty: "intermediate",
-    estimatedStudyTime: "45 minutes"
-  };
-  
-  return mockAnalysis;
 };
 
 // Create AI notes table if it doesn't exist
@@ -551,10 +517,10 @@ router.post('/process-video', upload.single('video'), async (req, res) => {
       });
     }
 
-    console.log('Analyzing content with Ollama...');
+    console.log('🧠 Analyzing content with Gemini AI...');
     
-    // Analyze with Ollama
-    const analysis = await analyzeWithOllama(transcript);
+    // Analyze with Gemini AI
+    const analysis = await analyzeWithGemini(transcript, 'lecture', title, subject || 'General');
     
     // Save to database
     const insertQuery = `

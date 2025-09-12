@@ -1,0 +1,79 @@
+# Simplified Docker Compose for Development
+# For quick development setup without nginx and redis
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  database:
+    image: postgres:15-alpine
+    container_name: learnx-db-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: learnx
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./database:/docker-entrypoint-initdb.d:ro
+    networks:
+      - learnx-dev
+
+  # Backend API Server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: learnx-backend-dev
+    restart: unless-stopped
+    environment:
+      DB_HOST: database
+      DB_PORT: 5432
+      DB_NAME: learnx
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      PORT: 5000
+      NODE_ENV: development
+      JWT_SECRET: learnx-dev-jwt-secret-2025
+      CORS_ORIGIN: http://localhost:3000
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-your-gemini-api-key-here}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - backend_dev_uploads:/app/uploads
+      - /app/node_modules
+    networks:
+      - learnx-dev
+    depends_on:
+      - database
+
+  # Frontend Next.js Application
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: learnx-frontend-dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      NEXT_PUBLIC_WS_URL: http://localhost:5000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - learnx-dev
+    depends_on:
+      - backend
+
+volumes:
+  postgres_dev_data:
+  backend_dev_uploads:
+
+networks:
+  learnx-dev:
+    driver: bridge

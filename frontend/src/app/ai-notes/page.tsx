@@ -190,7 +190,7 @@ export default function AINotesPage() {
             🤖 AI Notes with Video Processing
           </h1>
           <p className="text-gray-600 max-w-3xl mx-auto">
-            Transform your videos, lectures, and content into intelligent notes using local AI (Ollama). 
+            Transform your videos, lectures, and content into intelligent notes using Google Gemini AI. 
             Upload videos, provide URLs, or paste text to generate summaries, key points, questions, and highlights.
           </p>
         </div>
@@ -413,7 +413,7 @@ export default function AINotesPage() {
               <div className="bg-white rounded-lg shadow-lg p-8">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center flex items-center justify-center">
                   <span className="mr-2">🎬</span>
-                  Process Content with AI (Ollama)
+                  Process Content with AI (Gemini)
                 </h2>
                 
                 <div className="space-y-6">
@@ -548,10 +548,10 @@ export default function AINotesPage() {
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                     <h3 className="font-medium text-blue-800 mb-2 flex items-center">
                       <span className="mr-2">🧠</span>
-                      AI Processing with Ollama
+                      AI Processing with Gemini AI
                     </h3>
                     <p className="text-blue-700 text-sm">
-                      Your content will be processed locally using Ollama AI to generate:
+                      Your content will be processed using Google Gemini AI to generate:
                     </p>
                     <ul className="text-blue-700 text-sm mt-2 space-y-1">
                       <li>• Intelligent summary and overview</li>
@@ -577,7 +577,7 @@ export default function AINotesPage() {
                       ) : (
                         <span className="flex items-center justify-center">
                           <span className="mr-2">🚀</span>
-                          Process with Ollama AI
+                          Process with Gemini AI
                         </span>
                       )}
                     </button>

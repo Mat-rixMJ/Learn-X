@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 
 // Import middleware
 const { apiLimiter } = require('./middleware/rateLimiter');
+const { initializeDatabase } = require('./config/initDB');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -219,7 +220,10 @@ function handleDisconnect(socket) {
 }
 
 // Start server
-server.listen(port, () => {
+server.listen(port, async () => {
   console.log(`Server is running on port ${port}`);
   console.log(`WebSocket server ready for video streaming`);
+  
+  // Initialize database on Render
+  await initializeDatabase();
 });
