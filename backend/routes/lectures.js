@@ -283,7 +283,7 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 // ======== TEACHER/ADMIN MANAGEMENT ENDPOINTS ========
 
 // POST /api/lectures - Create new lecture (Teachers/Admins only)
-router.post('/', authenticateToken, authorizeRoles(['teacher', 'admin']), async (req, res) => {
+router.post('/', authenticateToken, authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
     const teacherId = req.user.id;
     const {
@@ -361,7 +361,7 @@ router.post('/', authenticateToken, authorizeRoles(['teacher', 'admin']), async 
 });
 
 // PUT /api/lectures/:id - Update lecture (Teachers/Admins only)
-router.put('/:id', authenticateToken, authorizeRoles(['teacher', 'admin']), async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
     const lectureId = req.params.id;
     const teacherId = req.user.id;
@@ -442,7 +442,7 @@ router.put('/:id', authenticateToken, authorizeRoles(['teacher', 'admin']), asyn
 });
 
 // DELETE /api/lectures/:id - Delete lecture (Teachers/Admins only)
-router.delete('/:id', authenticateToken, authorizeRoles(['teacher', 'admin']), async (req, res) => {
+router.delete('/:id', authenticateToken, authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
     const lectureId = req.params.id;
     const teacherId = req.user.id;
@@ -493,7 +493,7 @@ router.delete('/:id', authenticateToken, authorizeRoles(['teacher', 'admin']), a
 });
 
 // GET /api/lectures/my-lectures - Get teacher's own lectures
-router.get('/my-lectures', authenticateToken, authorizeRoles(['teacher', 'admin']), async (req, res) => {
+router.get('/my-lectures', authenticateToken, authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
     const teacherId = req.user.id;
     

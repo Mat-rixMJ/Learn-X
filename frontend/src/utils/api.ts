@@ -6,7 +6,7 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
   
   const defaultHeaders = {
     'Content-Type': 'application/json',
-    'ngrok-skip-browser-warning': 'true', // Required for ngrok tunnels
+  // Removed 'ngrok-skip-browser-warning' header (only needed when using ngrok)
   };
 
   const config: RequestInit = {

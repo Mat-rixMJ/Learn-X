@@ -22,8 +22,7 @@ export default function Login() {
       const response = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           username,

@@ -59,21 +59,33 @@ npm run install:all
 
 ### 2️⃣ Database Setup
 
-```bash
-# Start PostgreSQL service (Windows)
-net start postgresql-x64-14
+```powershell
+# Start PostgreSQL service (Windows) - adjust version if different
+net start postgresql-x64-17
 
-# Create database
-createdb remoteclassroom
+# (Optional) Add PostgreSQL bin to PATH for current session
+$env:Path += ';C:\Program Files\PostgreSQL\17\bin'
 
-# Run setup scripts
+# Create database (name must match DB_NAME in backend/.env)
+createdb learnx
+
+# (If you forgot the postgres superuser password, reset it)
+"C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d postgres -c "ALTER USER postgres PASSWORD 'postgres';"
+
+# Run minimal required setup (users + ai notes tables)
 cd backend
 node ../database/create-users-table.js
 node ../database/create-ai-notes-table.js
 
-# Verify setup
-npm run db:test
+# (Optional) Seed dev users
+node seed-dev-users.js
 ```
+
+If Node scripts complain about authentication:
+
+1. Ensure the password in `backend/.env` matches what you set with `ALTER USER`.
+2. Confirm the service version matches the one installed: `Get-Service | Where-Object { $_.Name -like '*postgres*' }`.
+3. Make sure `.env` is loaded (already enforced in `config/database.js`).
 
 ### 3️⃣ Environment Configuration
 
@@ -82,10 +94,17 @@ npm run db:test
 cp backend/.env.example backend/.env
 cp frontend/.env.local.example frontend/.env.local
 
-# Edit backend/.env with your database credentials:
-DATABASE_URL=postgresql://username:password@localhost:5432/remoteclassroom
-JWT_SECRET=your-super-secret-jwt-key-here
+# Edit backend/.env with your database credentials (example below matches quick start):
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=learnx
+DB_USER=postgres
+DB_PASSWORD=postgres
 PORT=5000
+JWT_SECRET=your-super-secret-jwt-key-here
+
+# Optional full URL variant if some tools need it:
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/learnx
 ```
 
 ### 4️⃣ Start the Application
@@ -105,6 +124,26 @@ npm run dev
 - 🌐 **Frontend**: http://localhost:3000
 - ⚡ **Backend API**: http://localhost:5000
 - 🤖 **AI Notes**: http://localhost:3000/ai-notes
+
+### 🔐 Development Login (Local Only)
+
+To simplify local development, you can seed two sample users (student & teacher):
+
+```powershell
+cd backend
+node seed-dev-users.js
+```
+
+Credentials created:
+
+| Role    | Username | Password    |
+| ------- | -------- | ----------- |
+| Student | student1 | password123 |
+| Teacher | teacher1 | password123 |
+
+Then log in at: http://localhost:3000/login
+
+> Note: The legacy `ngrok-skip-browser-warning` header has been removed from the frontend. If you reintroduce ngrok tunneling, you may add it back or keep backend CORS (already permissive) updated.
 
 ---
 

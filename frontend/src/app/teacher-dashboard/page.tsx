@@ -29,6 +29,7 @@ interface TeacherStats {
   activeClasses: number;
   totalLectures: number;
   totalStudents: number;
+  scheduledClasses: number;
   avgRating: number;
 }
 
@@ -89,6 +90,7 @@ export default function TeacherDashboard() {
     activeClasses: 0,
     totalLectures: 0,
     totalStudents: 0,
+    scheduledClasses: 0,
     avgRating: 0
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
@@ -350,7 +352,7 @@ export default function TeacherDashboard() {
       const token = localStorage.getItem('token');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
       
-      const response = await fetch(`${baseUrl}/api/scheduled/my-scheduled`, {
+      const response = await fetch(`${baseUrl}/api/teacher/scheduled-classes`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -369,8 +371,34 @@ export default function TeacherDashboard() {
   const handleScheduleClass = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Validate required fields
+      if (!scheduleForm.class_id || !scheduleForm.title || !scheduleForm.scheduled_date || !scheduleForm.scheduled_time) {
+        alert('Please fill in all required fields');
+        return;
+      }
+
       const token = localStorage.getItem('token');
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      
+      // Combine date and time into ISO string for the backend
+      const scheduledDateTime = new Date(`${scheduleForm.scheduled_date}T${scheduleForm.scheduled_time}`);
+      
+      // Validate that the scheduled time is in the future
+      if (scheduledDateTime <= new Date()) {
+        alert('Scheduled time must be in the future');
+        return;
+      }
+      
+      // Prepare the payload for the backend API
+      const payload = {
+        class_id: scheduleForm.class_id,
+        title: scheduleForm.title,
+        description: scheduleForm.description,
+        scheduled_at: scheduledDateTime.toISOString(),
+        duration_minutes: scheduleForm.duration_minutes,
+        max_participants: scheduleForm.max_participants,
+        send_reminders: scheduleForm.send_reminders
+      };
       
       const response = await fetch(`${baseUrl}/api/scheduled/schedule`, {
         method: 'POST',
@@ -378,7 +406,7 @@ export default function TeacherDashboard() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(scheduleForm),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -396,12 +424,13 @@ export default function TeacherDashboard() {
           send_reminders: true
         });
         fetchScheduledClasses();
+        fetchTeacherStats(); // Update stats to reflect new scheduled class
       } else {
         alert(data.message || 'Failed to schedule class');
       }
     } catch (error) {
       console.error('Schedule class error:', error);
-      alert('Failed to schedule class');
+      alert('Failed to schedule class. Please check your connection and try again.');
     }
   };
 
@@ -990,7 +1019,7 @@ export default function TeacherDashboard() {
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
               <div className="bg-white/70 backdrop-blur-sm p-6 rounded-3xl shadow-xl">
                 <div className="text-center">
                   <div className="text-4xl mb-2">📚</div>
@@ -1010,6 +1039,13 @@ export default function TeacherDashboard() {
                   <div className="text-4xl mb-2">👥</div>
                   <div className="text-2xl font-bold text-purple-600">{stats.totalStudents}</div>
                   <div className="text-gray-600">Total Students</div>
+                </div>
+              </div>
+              <div className="bg-white/70 backdrop-blur-sm p-6 rounded-3xl shadow-xl">
+                <div className="text-center">
+                  <div className="text-4xl mb-2">📅</div>
+                  <div className="text-2xl font-bold text-blue-600">{stats.scheduledClasses}</div>
+                  <div className="text-gray-600">Scheduled Classes</div>
                 </div>
               </div>
               <div className="bg-white/70 backdrop-blur-sm p-6 rounded-3xl shadow-xl">

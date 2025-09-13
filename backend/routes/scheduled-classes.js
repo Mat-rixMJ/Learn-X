@@ -7,22 +7,28 @@ const pool = require('../config/database');
 router.post('/schedule', authenticateToken, authorizeRoles('teacher'), async (req, res) => {
   try {
     const teacherId = req.user.id;
+    console.log('Schedule class request from teacher:', teacherId);
+    console.log('Request body:', req.body);
+    
     const { 
       class_id, 
       title, 
       description, 
-      scheduled_date,
-      scheduled_time,
+      scheduled_at,  // Changed from scheduled_date/scheduled_time
       duration_minutes,
       max_participants,
       send_reminders
     } = req.body;
+
+    console.log('Parsed values:', { class_id, title, scheduled_at, duration_minutes });
 
     // Verify teacher owns this class
     const classCheck = await pool.query(
       'SELECT * FROM classes WHERE id = $1 AND teacher_id = $2',
       [class_id, teacherId]
     );
+    
+    console.log('Class check result:', classCheck.rows.length);
 
     if (classCheck.rows.length === 0) {
       return res.status(403).json({
@@ -31,11 +37,13 @@ router.post('/schedule', authenticateToken, authorizeRoles('teacher'), async (re
       });
     }
 
-    // Combine date and time into a proper timestamp
-    const scheduledAt = new Date(`${scheduled_date}T${scheduled_time}`);
+    // Parse the scheduled_at timestamp
+    const scheduledAt = new Date(scheduled_at);
+    console.log('Parsed scheduledAt:', scheduledAt);
     
     // Validate future date
     if (scheduledAt <= new Date()) {
+      console.log('Date validation failed: scheduledAt is not in future');
       return res.status(400).json({
         success: false,
         message: 'Scheduled time must be in the future'
@@ -55,12 +63,16 @@ router.post('/schedule', authenticateToken, authorizeRoles('teacher'), async (re
 
     // If reminders are enabled, create reminder notifications
     if (send_reminders) {
+      // TODO: Implement notifications table first
+      console.log('Reminders requested for class:', class_id);
+      
+      /*
       // Get all students enrolled in this class
       const studentsQuery = await pool.query(
-        `SELECT uc.user_id, u.email, u.full_name 
-         FROM user_classes uc 
-         JOIN users u ON uc.user_id = u.id 
-         WHERE uc.class_id = $1`,
+        `SELECT ce.student_id as user_id, u.email, u.full_name 
+         FROM class_enrollments ce 
+         JOIN users u ON ce.student_id = u.id 
+         WHERE ce.class_id = $1 AND ce.is_active = true`,
         [class_id]
       );
 
@@ -95,6 +107,7 @@ router.post('/schedule', authenticateToken, authorizeRoles('teacher'), async (re
           }
         }
       }
+      */
     }
 
     res.json({
@@ -125,10 +138,10 @@ router.get('/my-scheduled', authenticateToken, authorizeRoles('teacher'), async 
 
     const query = `
       SELECT sc.*, c.name as class_name, c.subject,
-             COUNT(DISTINCT uc.user_id) as enrolled_students
+             COUNT(DISTINCT ce.student_id) as enrolled_students
       FROM scheduled_classes sc
       JOIN classes c ON sc.class_id = c.id
-      LEFT JOIN user_classes uc ON c.id = uc.class_id
+      LEFT JOIN class_enrollments ce ON c.id = ce.class_id AND ce.is_active = true
       WHERE sc.teacher_id = $1 AND sc.status = $2
       GROUP BY sc.id, c.name, c.subject
       ORDER BY sc.scheduled_at ASC
@@ -166,12 +179,12 @@ router.get('/upcoming', authenticateToken, async (req, res) => {
       // Get student's upcoming scheduled classes
       query = `
         SELECT DISTINCT sc.*, c.name as class_name, c.subject, u.full_name as teacher_name,
-               COUNT(DISTINCT uc.user_id) as enrolled_students
+               COUNT(DISTINCT ce.student_id) as enrolled_students
         FROM scheduled_classes sc
         JOIN classes c ON sc.class_id = c.id
         JOIN users u ON sc.teacher_id = u.id
-        JOIN user_classes uc ON c.id = uc.class_id AND uc.user_id = $1
-        LEFT JOIN user_classes uc2 ON c.id = uc2.class_id
+        JOIN class_enrollments ce ON c.id = ce.class_id AND ce.student_id = $1 AND ce.is_active = true
+        LEFT JOIN class_enrollments ce2 ON c.id = ce2.class_id AND ce2.is_active = true
         WHERE sc.status = 'scheduled' AND sc.scheduled_at > NOW()
         GROUP BY sc.id, c.name, c.subject, u.full_name
         ORDER BY sc.scheduled_at ASC
@@ -182,10 +195,10 @@ router.get('/upcoming', authenticateToken, async (req, res) => {
       // Teachers see their own scheduled classes
       query = `
         SELECT sc.*, c.name as class_name, c.subject,
-               COUNT(DISTINCT uc.user_id) as enrolled_students
+               COUNT(DISTINCT ce.student_id) as enrolled_students
         FROM scheduled_classes sc
         JOIN classes c ON sc.class_id = c.id
-        LEFT JOIN user_classes uc ON c.id = uc.class_id
+        LEFT JOIN class_enrollments ce ON c.id = ce.class_id AND ce.is_active = true
         WHERE sc.teacher_id = $1 AND sc.status = 'scheduled' AND sc.scheduled_at > NOW()
         GROUP BY sc.id, c.name, c.subject
         ORDER BY sc.scheduled_at ASC

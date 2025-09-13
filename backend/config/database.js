@@ -1,3 +1,5 @@
+// Load environment variables (so requiring this module standalone still gets .env values)
+require('dotenv').config();
 const { Pool } = require('pg');
 
 // Enhanced database configuration with connection pooling

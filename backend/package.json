@@ -28,6 +28,8 @@
   "author": "LearnX Team",
   "license": "ISC",
   "dependencies": {
+    "@google-cloud/speech": "^7.2.0",
+    "@google-cloud/translate": "^9.2.0",
     "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
