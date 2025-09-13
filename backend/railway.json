@@ -1,0 +1,12 @@
+{
+  "name": "learn-x-backend",
+  "description": "Learn-X Backend API with AI-powered features",
+  "keywords": ["nodejs", "express", "postgresql", "ai", "education"],
+  "engines": {
+    "node": "18.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  }
+}
