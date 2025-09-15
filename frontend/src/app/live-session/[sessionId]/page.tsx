@@ -8,54 +8,35 @@ import ChatPanel from '@/components/live-session/ChatPanel';
 import ParticipantsList from '@/components/live-session/ParticipantsList';
 import ControlPanel from '@/components/live-session/ControlPanel';
 import SubtitleOverlay from '@/components/live-session/SubtitleOverlay';
+import EnhancedSubtitleOverlay from '@/components/live-session/EnhancedSubtitleOverlay';
+import LanguageSelect from '@/components/live-session/LanguageSelect';
 import ScreenSharing from '@/components/live-session/ScreenSharing';
 import PDFViewer from '@/components/live-session/PDFViewer';
 import PowerPointViewer from '@/components/live-session/PowerPointViewer';
+import BreakoutRooms from '@/components/live-session/BreakoutRooms';
+import VideoQualityControls, { VideoQualitySettings } from '@/components/live-session/VideoQualityControls';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-
-interface Participant {
-  userId: string;
-  userName: string;
-  role: 'teacher' | 'student';
-  isStreaming?: boolean;
-}
-
-interface SessionData {
-  id: string;
-  title: string;
-  description?: string;
-  teacher: {
-    id: string;
-    name: string;
-  };
-  class: {
-    id: string;
-    name: string;
-  };
-  status: 'active' | 'ended';
-  isRecording: boolean;
-  hasTranslation: boolean;
-  hasSubtitles: boolean;
-  participants: Participant[];
-}
-
-interface ChatMessage {
-  id: string;
-  userId: string;
-  userName: string;
-  message: string;
-  timestamp: Date;
-  translations?: { [language: string]: string };
-}
-
-interface LiveCaption {
-  id: string;
-  text: string;
-  confidence: number;
-  timestamp: number;
-  startTime: number;
-  translations?: { [language: string]: string };
-}
+import LiveTranslationService, { SupportedLanguage } from '@/services/LiveTranslationService';
+import { authenticatedFetch, validateToken, debugTokenInfo } from '@/utils/auth';
+import {
+  Participant,
+  SessionData,
+  ChatMessage,
+  LiveCaption,
+  TranslationResult,
+  SubtitleSettings,
+  SpeechRecognitionResult as CustomSpeechResult,
+  StreamData,
+  SocketJoinData,
+  SocketUserData,
+  SocketChatData,
+  SocketCaptionData,
+  SocketRecordingData,
+  SocketErrorData,
+  WebRTCOffer,
+  WebRTCAnswer,
+  WebRTCIceCandidate
+} from '@/types/live-session';
 
 export default function LiveSessionPage() {
   const params = useParams();
@@ -72,7 +53,49 @@ export default function LiveSessionPage() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [liveCaptions, setLiveCaptions] = useState<LiveCaption[]>([]);
+  const [translations, setTranslations] = useState<TranslationResult[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  
+  // Translation and Subtitle State
+  const [translationService] = useState(() => new LiveTranslationService());
+  const [subtitleSettings, setSubtitleSettings] = useState<SubtitleSettings>({
+    enabled: false,
+    language: 'en-US',
+    fontSize: 18,
+    position: 'bottom',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    textColor: '#ffffff',
+    autoTranslate: false,
+    showOriginal: false,
+    translationLanguage: 'hi'
+  });
+  const [targetLanguages, setTargetLanguages] = useState<string[]>([]);
+  const [supportedLanguages, setSupportedLanguages] = useState<SupportedLanguage[]>([]);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [showLanguageSelect, setShowLanguageSelect] = useState(false);
+  
+  // Video Quality & Network
+  const [videoQuality, setVideoQuality] = useState<VideoQualitySettings>({
+    resolution: '720p',
+    frameRate: 30,
+    bitrate: 'medium',
+    codec: 'H264',
+    adaptiveBitrate: true,
+    noiseSuppression: true,
+    echoCancellation: true,
+    autoGainControl: true
+  });
+  
+  const [networkStats, setNetworkStats] = useState({
+    bandwidth: 2000,
+    latency: 50,
+    packetLoss: 0,
+    jitter: 5,
+    quality: 'good' as const
+  });
+  
+  const [showQualityControls, setShowQualityControls] = useState(false);
+  const [currentBreakoutRoom, setCurrentBreakoutRoom] = useState<string | null>(null);
   
   // Video/Audio refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -85,7 +108,7 @@ export default function LiveSessionPage() {
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('en');
-  const [activeTab, setActiveTab] = useState<'chat' | 'screen' | 'pdf' | 'ppt'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'screen' | 'pdf' | 'ppt' | 'breakout' | 'translation'>('chat');
   
   // Socket configuration
   const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
@@ -102,21 +125,27 @@ export default function LiveSessionPage() {
       // Get user info
       const token = localStorage.getItem('token');
       if (!token) {
+        console.log('No token found - redirecting to login');
         router.push('/auth/login');
         return;
       }
 
-      // Fetch session data
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/live/${sessionId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      // Validate token before making requests
+      const tokenInfo = validateToken(token);
+      if (!tokenInfo.valid) {
+        console.error('Invalid token:', tokenInfo.error);
+        if (process.env.NODE_ENV === 'development') {
+          debugTokenInfo(token);
         }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch session data');
+        localStorage.removeItem('token');
+        router.push('/auth/login');
+        return;
       }
+
+      console.log('Token validated successfully');
+
+      // Fetch session data using authenticated fetch
+      const response = await authenticatedFetch(`${process.env.NEXT_PUBLIC_API_URL}/api/live/${sessionId}`);
 
       const result = await response.json();
       if (!result.success) {
@@ -128,17 +157,20 @@ export default function LiveSessionPage() {
       
       // Get current user info
       let userResult = null;
-      const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      try {
+        const userResponse = await authenticatedFetch(`${process.env.NEXT_PUBLIC_API_URL}/api/user/profile`);
+        
+        if (userResponse.ok) {
+          userResult = await userResponse.json();
+          setCurrentUser(userResult.data);
+          setUserRole(userResult.data.role);
+        } else {
+          console.warn('Failed to fetch user profile:', userResponse.status);
         }
-      });
-
-      if (userResponse.ok) {
-        userResult = await userResponse.json();
-        setCurrentUser(userResult.data);
-        setUserRole(userResult.data.role);
+      } catch (authError) {
+        console.error('Authentication error during user profile fetch:', authError);
+        // The authenticatedFetch will handle redirecting to login
+        return;
       }
 
       // Initialize Socket.IO connection
@@ -149,6 +181,9 @@ export default function LiveSessionPage() {
 
       setSocket(newSocket);
       setupSocketListeners(newSocket);
+      
+      // Initialize translation service
+      initializeTranslationService(newSocket);
       
       // Join the session
       newSocket.emit('join-session', {
@@ -177,58 +212,105 @@ export default function LiveSessionPage() {
       setIsConnected(false);
     });
 
-    socket.on('session-joined', (data) => {
+    socket.on('session-joined', (data: SocketJoinData) => {
       console.log('✅ Joined session:', data);
-      setParticipants(data.participants || []);
+      const participantsWithStatus = (data.participants || []).map(p => ({
+        ...p,
+        isOnline: true
+      }));
+      setParticipants(participantsWithStatus);
       setIsRecording(data.isRecording || false);
     });
 
-    socket.on('user-joined', (data) => {
+    socket.on('user-joined', (data: SocketUserData) => {
       console.log('👤 User joined:', data);
-      setParticipants(prev => [...prev, data]);
+      setParticipants(prev => [...prev, {
+        userId: data.userId,
+        userName: data.userName,
+        role: data.role,
+        isOnline: true,
+        isStreaming: false
+      }]);
     });
 
-    socket.on('user-left', (data) => {
+    socket.on('user-left', (data: SocketUserData) => {
       console.log('👋 User left:', data);
       setParticipants(prev => prev.filter(p => p.userId !== data.userId));
     });
 
-    socket.on('chat-message', (data) => {
+    socket.on('chat-message', (data: SocketChatData) => {
       console.log('💬 Chat message:', data);
       setChatMessages(prev => [...prev, {
-        ...data,
-        timestamp: new Date(data.timestamp)
+        id: data.id,
+        userName: data.userName,
+        message: data.message,
+        timestamp: new Date(data.timestamp),
+        type: data.type || 'user',
+        userId: data.userId || 'unknown',
+        messageType: (data.type === 'system' ? 'system' : 'chat') as 'chat' | 'system' | 'translation'
       }]);
     });
 
-    socket.on('live-caption', (data) => {
+    socket.on('live-caption', (data: SocketCaptionData) => {
       console.log('📝 Live caption:', data);
       setLiveCaptions(prev => {
-        const newCaptions = [...prev, data];
+        const newCaption: LiveCaption = {
+          id: data.id,
+          text: data.text,
+          timestamp: new Date(data.timestamp),
+          language: data.language,
+          isTranslated: data.isTranslated,
+          original: data.original,
+          translated: data.translated,
+          confidence: data.confidence,
+          startTime: data.startTime
+        };
+        const newCaptions = [...prev, newCaption];
         // Keep only last 10 captions
         return newCaptions.slice(-10);
       });
     });
 
-    socket.on('live-caption-translated', (data) => {
+    socket.on('live-caption-translated', (data: SocketCaptionData) => {
       console.log('🌐 Translated caption:', data);
       setLiveCaptions(prev => {
-        const newCaptions = [...prev, data];
-        return newCaptions.slice(-10);
+        const translatedCaption: LiveCaption = {
+          id: data.id,
+          text: data.text,
+          timestamp: new Date(data.timestamp),
+          language: data.language,
+          isTranslated: data.isTranslated,
+          original: data.original,
+          translated: data.translated,
+          confidence: data.confidence,
+          startTime: data.startTime
+        };
+        const updatedCaptions = [...prev, translatedCaption];
+        return updatedCaptions.slice(-10);
       });
     });
 
-    socket.on('recording-status', (data) => {
+    // Translation event listeners
+    socket.on('live-translation', (data: TranslationResult) => {
+      console.log('🔄 Live translation:', data);
+      setTranslations(prev => {
+        const newTranslations = [...prev, data];
+        // Keep only last 20 translations
+        return newTranslations.slice(-20);
+      });
+    });
+
+    socket.on('recording-status', (data: SocketRecordingData) => {
       console.log('📹 Recording status:', data);
       setIsRecording(data.isRecording);
     });
 
-    socket.on('stream-started', (data) => {
+    socket.on('stream-started', (data: StreamData) => {
       console.log('🎥 Stream started:', data);
       handleRemoteStream(data);
     });
 
-    socket.on('stream-stopped', (data) => {
+    socket.on('stream-stopped', (data: StreamData) => {
       console.log('⏹️ Stream stopped:', data);
       stopRemoteStream();
     });
@@ -238,11 +320,11 @@ export default function LiveSessionPage() {
     socket.on('answer-received', handleAnswer);
     socket.on('ice-candidate-received', handleIceCandidate);
 
-    socket.on('join-error', (data) => {
+    socket.on('join-error', (data: SocketErrorData) => {
       setError(data.message);
     });
 
-    socket.on('session-ended', (data) => {
+    socket.on('session-ended', (data: SocketErrorData) => {
       alert('Session has ended');
       router.push('/dashboard');
     });
@@ -257,6 +339,71 @@ export default function LiveSessionPage() {
     }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
+    }
+    // Stop translation service
+    if (translationService) {
+      translationService.stopRecognition();
+    }
+  };
+
+  // Initialize translation service
+  const initializeTranslationService = (socket: Socket) => {
+    // Set socket for real-time communication
+    translationService.setSocket(socket);
+    
+    // Get supported languages
+    const languages = translationService.getAvailableLanguages();
+    setSupportedLanguages(languages);
+
+    // Set up translation callbacks
+    translationService.onTranscript((result: CustomSpeechResult) => {
+      const newCaption: LiveCaption = {
+        id: Date.now().toString(),
+        text: result.transcript,
+        timestamp: result.timestamp,
+        language: result.language,
+        confidence: result.confidence
+      };
+      
+      setLiveCaptions(prev => {
+        const updated = [...prev, newCaption];
+        return updated.slice(-10);
+      });
+    });
+
+    translationService.onTranslation((result: TranslationResult) => {
+      setTranslations(prev => {
+        const updated = [...prev, result];
+        return updated.slice(-20);
+      });
+    });
+  };
+
+  // Translation control functions
+  const handleStartRecognition = () => {
+    const success = translationService.startRecognition(subtitleSettings.language);
+    if (success) {
+      setIsRecognizing(true);
+      translationService.setTargetLanguages(targetLanguages);
+    }
+  };
+
+  const handleStopRecognition = () => {
+    translationService.stopRecognition();
+    setIsRecognizing(false);
+  };
+
+  const handleLanguageChange = (language: string) => {
+    setSubtitleSettings(prev => ({ ...prev, language }));
+    if (isRecognizing) {
+      translationService.setLanguage(language);
+    }
+  };
+
+  const handleTargetLanguagesChange = (languages: string[]) => {
+    setTargetLanguages(languages);
+    if (isRecognizing) {
+      translationService.setTargetLanguages(languages);
     }
   };
 
@@ -437,7 +584,7 @@ export default function LiveSessionPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{sessionData?.title}</h1>
-            <p className="text-gray-600">{sessionData?.class.name}</p>
+            <p className="text-gray-600">{sessionData?.description || 'Live Session'}</p>
           </div>
           <div className="flex items-center space-x-4">
             <div className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -445,6 +592,20 @@ export default function LiveSessionPage() {
             }`}>
               {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
             </div>
+            
+            {/* Video Quality Controls Button */}
+            <button
+              onClick={() => setShowQualityControls(!showQualityControls)}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                showQualityControls 
+                  ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                  : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+              }`}
+              title="Video Quality & Network Stats"
+            >
+              📺 Quality ({videoQuality.resolution})
+            </button>
+            
             {userRole === 'teacher' && (
               <button
                 onClick={() => router.push('/teacher-dashboard')}
@@ -471,14 +632,13 @@ export default function LiveSessionPage() {
               onStartStream={startLocalStream}
             />
             
-            {/* Subtitle Overlay */}
-            {subtitlesEnabled && (
-              <SubtitleOverlay
-                captions={liveCaptions}
-                selectedLanguage={selectedLanguage}
-                translationEnabled={translationEnabled}
-              />
-            )}
+            {/* Enhanced Subtitle Overlay */}
+            <EnhancedSubtitleOverlay
+              captions={liveCaptions}
+              translations={translations}
+              settings={subtitleSettings}
+              onSettingsChange={setSubtitleSettings}
+            />
           </div>
 
           {/* Control Panel */}
@@ -503,20 +663,22 @@ export default function LiveSessionPage() {
             <div className="flex">
               {[
                 { id: 'chat', label: '💬 Chat', icon: '💬' },
+                { id: 'translation', label: '🌐 Translate', icon: '🌐' },
                 { id: 'screen', label: '📺 Screen', icon: '📺' },
                 { id: 'pdf', label: '📄 PDF', icon: '📄' },
-                { id: 'ppt', label: '🎯 PPT', icon: '🎯' }
+                { id: 'ppt', label: '🎯 PPT', icon: '🎯' },
+                { id: 'breakout', label: '🏠 Rooms', icon: '🏠' }
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as 'chat' | 'screen' | 'pdf' | 'ppt')}
-                  className={`flex-1 px-3 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  onClick={() => setActiveTab(tab.id as 'chat' | 'translation' | 'screen' | 'pdf' | 'ppt' | 'breakout')}
+                  className={`flex-1 px-2 py-3 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600 bg-white'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                   }`}
                 >
-                  <span className="block text-lg mb-1">{tab.icon}</span>
+                  <span className="block text-sm mb-1">{tab.icon}</span>
                   <span className="text-xs">{tab.label.split(' ')[1]}</span>
                 </button>
               ))}
@@ -541,6 +703,74 @@ export default function LiveSessionPage() {
                 translationEnabled={translationEnabled}
                 selectedLanguage={selectedLanguage}
               />
+            )}
+            
+            {activeTab === 'translation' && (
+              <div className="h-full overflow-y-auto p-4">
+                <LanguageSelect
+                  selectedLanguage={subtitleSettings.language}
+                  targetLanguages={targetLanguages}
+                  supportedLanguages={supportedLanguages}
+                  onLanguageChange={handleLanguageChange}
+                  onTargetLanguagesChange={handleTargetLanguagesChange}
+                  onStartRecognition={handleStartRecognition}
+                  onStopRecognition={handleStopRecognition}
+                  isRecognizing={isRecognizing}
+                />
+                
+                {/* Live Captions Display */}
+                <div className="mt-4 border-t pt-4">
+                  <h4 className="text-sm font-medium mb-2">📝 Live Captions</h4>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">
+                    {liveCaptions.length === 0 ? (
+                      <p className="text-gray-500 text-sm text-center py-4">
+                        {isRecognizing ? 'Listening for speech...' : 'Start recognition to see live captions'}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {liveCaptions.slice(-5).map((caption) => (
+                          <div key={caption.id} className="text-sm">
+                            <div className="font-medium">{caption.text}</div>
+                            {caption.translated && subtitleSettings.autoTranslate && (
+                              <div className="text-blue-600 text-xs mt-1">
+                                🌐 {caption.translated}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-500">
+                              {caption.timestamp.toLocaleTimeString()} • 
+                              Confidence: {Math.round((caption.confidence || 0.8) * 100)}%
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Translations Display */}
+                {translations.length > 0 && (
+                  <div className="mt-4 border-t pt-4">
+                    <h4 className="text-sm font-medium mb-2">🔄 Recent Translations</h4>
+                    <div className="bg-blue-50 dark:bg-blue-900 rounded-lg p-3 max-h-40 overflow-y-auto">
+                      <div className="space-y-2">
+                        {translations.slice(-5).map((translation, index) => (
+                          <div key={index} className="text-sm">
+                            <div className="text-gray-700 dark:text-gray-300">
+                              Original: {translation.original}
+                            </div>
+                            <div className="font-medium text-blue-800 dark:text-blue-200">
+                              {supportedLanguages.find(l => l.code.startsWith(translation.language))?.nativeName || translation.language}: {translation.translated}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {translation.timestamp.toLocaleTimeString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
             
             {activeTab === 'screen' && (
@@ -575,9 +805,43 @@ export default function LiveSessionPage() {
                 />
               </div>
             )}
+            
+            {activeTab === 'breakout' && (
+              <div className="h-full">
+                <BreakoutRooms
+                  socket={socket}
+                  sessionId={sessionId}
+                  currentUser={currentUser}
+                  participants={participants}
+                  userRole={userRole || 'student'}
+                  onJoinRoom={(roomId) => setCurrentBreakoutRoom(roomId)}
+                  onLeaveRoom={() => setCurrentBreakoutRoom(null)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
+      
+      {/* Floating Video Quality Controls */}
+      {showQualityControls && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="relative max-w-md w-full mx-4">
+            <VideoQualityControls
+              currentSettings={videoQuality}
+              networkStats={networkStats}
+              onSettingsChange={setVideoQuality}
+              isHost={userRole === 'teacher'}
+            />
+            <button
+              onClick={() => setShowQualityControls(false)}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors flex items-center justify-center text-sm font-bold"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

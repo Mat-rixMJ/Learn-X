@@ -119,6 +119,103 @@ cd frontend
 npm run dev
 ```
 
+### 🔄 Unified Full Stack Start (Backend + Frontend + Python Services)
+
+You can now start everything with a single command that:
+
+1. Ensures all Python microservices (audio, translation, caption) are running and healthy.
+2. Starts the backend once they are ready.
+3. Starts the frontend.
+
+```powershell
+npm run start:full
+```
+
+If a Python service fails its health check during cold start (e.g. large Whisper model), it will retry until healthy or timeout.
+
+### 🧠 Whisper Model Size Selection
+
+Set the model size for the audio service to reduce cold start time or improve accuracy:
+
+```powershell
+$env:WHISPER_MODEL_SIZE = "small"  # Options: tiny, base, small, medium, large, large-v2, large-v3
+npm run start:full
+```
+
+Fallback behavior: If the requested model fails to load (e.g. OOM), the service automatically tries: requested → small → base → tiny.
+
+Check active model:
+
+```
+GET http://localhost:8001/health
+```
+
+### 🩺 Aggregated System Health Endpoint
+
+The backend now exposes a consolidated health status including database and Python microservices:
+
+```
+GET http://localhost:5000/api/system/health
+
+Optional query parameters:
+
+| Param    | Purpose | Example |
+|--------- |---------|---------|
+| probe=true | Force fresh live probes (bypass cache) | /api/system/health?probe=true |
+| skipDb=true | Skip DB check (useful under DB load) | /api/system/health?skipDb=true |
+| ttl=ms | Override cache TTL (max 30000ms) | /api/system/health?ttl=10000 |
+
+Caching behavior:
+- Default cache TTL: 5000ms (responses within this window are served instantly)
+- Header `X-Health-Cache: HIT|MISS|BYPASS` indicates cache usage
+- `probe=true` always returns fresh data (BYPASS)
+```
+
+Response example (trimmed):
+
+```json
+{
+  "success": true,
+  "overall": "healthy",
+  "backend": { "uptime_seconds": 123.4 },
+  "database": { "ok": true },
+  "python_services": {
+    "audio": { "healthy": true },
+    "translation": { "healthy": true },
+    "caption": { "healthy": true }
+  }
+}
+```
+
+### 🔧 Temporarily Disabling Python Microservices
+
+If you want to run only the core Node.js backend + Next.js frontend (skip audio / translation / caption services), set the flag:
+
+PowerShell (current session):
+
+```powershell
+Set-Item Env:ENABLE_PYTHON_SERVICES false
+npm run start:full
+```
+
+One-off (Unix shells / Git Bash):
+
+```bash
+ENABLE_PYTHON_SERVICES=false npm run start:full
+```
+
+When disabled:
+
+- /api/python-services/health returns overall_status: "disabled"
+- /api/system/health overall = "python_disabled"
+- Orchestrator skips spawning Python processes
+
+Re-enable:
+
+```powershell
+Set-Item Env:ENABLE_PYTHON_SERVICES true
+```
+
 ### 5️⃣ Access the Platform
 
 - 🌐 **Frontend**: http://localhost:3000

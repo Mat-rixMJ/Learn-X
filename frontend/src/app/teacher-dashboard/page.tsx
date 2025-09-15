@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import VideoUpload from '@/components/lectures/VideoUpload';
+import VideoPlayer from '@/components/lectures/VideoPlayer';
 
 interface Class {
   id: string;
@@ -49,6 +51,7 @@ interface Lecture {
   enrolled_students: number;
   is_public: boolean;
   created_at: string;
+  recorded_at?: string;
 }
 
 interface LiveSession {
@@ -683,116 +686,43 @@ export default function TeacherDashboard() {
       {/* Upload Form Modal */}
       {showUploadForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-3xl p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">📤 Upload New Lecture</h2>
-            <form onSubmit={handleUploadSubmit} className="space-y-4">
-              <div>
-                <label className="block text-gray-700 font-semibold mb-2">📚 Select Class</label>
-                <select
-                  value={uploadForm.class_id}
-                  onChange={(e) => setUploadForm({...uploadForm, class_id: e.target.value})}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500"
-                  required
-                >
-                  <option value="">Select a class...</option>
-                  {classes.map((classItem) => (
-                    <option key={classItem.id} value={classItem.id}>
-                      {classItem.name} - {classItem.subject}
-                    </option>
-                  ))}
-                </select>
-                {classes.length === 0 && (
-                  <p className="text-gray-500 text-sm mt-2">
-                    📝 No classes available. Create a class first to upload lectures.
-                  </p>
-                )}
+          <div className="bg-white rounded-3xl p-8 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">� Upload New Video Lecture</h2>
+              <button
+                onClick={() => setShowUploadForm(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <VideoUpload
+              teacherClasses={classes.map(cls => ({
+                id: cls.id,
+                name: cls.name,
+                subject: cls.subject
+              }))}
+              onUploadSuccess={(lecture) => {
+                // Refresh lectures list and close modal
+                fetchMyLectures();
+                setShowUploadForm(false);
+                // Show success message (you can add a toast notification here)
+                alert(`✅ Video "${lecture.title}" uploaded successfully!`);
+              }}
+              onUploadError={(error) => {
+                // Show error message (you can add a toast notification here)
+                alert(`❌ Upload failed: ${error}`);
+              }}
+            />
+            
+            {classes.length === 0 && (
+              <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-yellow-800">
+                  📝 No classes available. Please create a class first before uploading lectures.
+                </p>
               </div>
-              
-              <div>
-                <label className="block text-gray-700 font-semibold mb-2">📝 Lecture Title</label>
-                <input
-                  type="text"
-                  value={uploadForm.title}
-                  onChange={(e) => setUploadForm({...uploadForm, title: e.target.value})}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500"
-                  placeholder="e.g., Introduction to Machine Learning"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-gray-700 font-semibold mb-2">📖 Description</label>
-                <textarea
-                  value={uploadForm.description}
-                  onChange={(e) => setUploadForm({...uploadForm, description: e.target.value})}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 h-24"
-                  placeholder="Describe what this lecture covers..."
-                />
-              </div>
-              
-              <div>
-                <label className="block text-gray-700 font-semibold mb-2">🎥 Video URL</label>
-                <input
-                  type="url"
-                  value={uploadForm.video_url}
-                  onChange={(e) => setUploadForm({...uploadForm, video_url: e.target.value})}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500"
-                  placeholder="https://example.com/video.mp4 or YouTube URL"
-                  required
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-700 font-semibold mb-2">🎵 Audio URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={uploadForm.audio_url}
-                    onChange={(e) => setUploadForm({...uploadForm, audio_url: e.target.value})}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500"
-                    placeholder="Audio file URL"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 font-semibold mb-2">📊 Slides URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={uploadForm.slides_url}
-                    onChange={(e) => setUploadForm({...uploadForm, slides_url: e.target.value})}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500"
-                    placeholder="Slides PDF URL"
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={uploadForm.is_public}
-                    onChange={(e) => setUploadForm({...uploadForm, is_public: e.target.checked})}
-                    className="w-5 h-5 text-indigo-600"
-                  />
-                  <span className="text-gray-700 font-semibold">🌐 Make this lecture public (visible to all users)</span>
-                </label>
-              </div>
-              
-              <div className="flex space-x-4 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-full hover:from-indigo-700 hover:to-purple-700 font-semibold shadow-lg"
-                >
-                  📤 Upload Lecture
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowUploadForm(false)}
-                  className="flex-1 px-6 py-3 bg-gray-500 text-white rounded-full hover:bg-gray-600 font-semibold shadow-lg"
-                >
-                  ❌ Cancel
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
       )}
@@ -1110,10 +1040,55 @@ export default function TeacherDashboard() {
                       <p>📚 <strong>Class:</strong> {lecture.class_name}</p>
                       <p>👥 <strong>Students:</strong> {lecture.enrolled_students}</p>
                       <p>⏱️ <strong>Duration:</strong> {lecture.duration}</p>
-                      <p>📅 <strong>Created:</strong> {new Date(lecture.created_at).toLocaleDateString()}</p>
+                      <p>📅 <strong>Created:</strong> {new Date(lecture.recorded_at || lecture.created_at).toLocaleDateString()}</p>
+                      {lecture.is_public && <p>🌐 <strong>Public:</strong> Visible to all users</p>}
                     </div>
                     <p className="text-gray-600 text-sm mb-4">{lecture.description}</p>
+                    
+                    {/* Video Preview */}
+                    {lecture.video_url && (
+                      <div className="mb-4">
+                        {lecture.video_url.startsWith('/uploads/') ? (
+                          // Local uploaded video - use custom player with streaming
+                          <VideoPlayer
+                            videoUrl={lecture.video_url}
+                            title={lecture.title}
+                            className="w-full h-40 rounded-lg border border-gray-200"
+                            controls={true}
+                            autoPlay={false}
+                          />
+                        ) : (
+                          // External video URL
+                          <div className="w-full h-40 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+                            <div className="text-center">
+                              <div className="text-2xl mb-2">🎥</div>
+                              <p className="text-sm text-gray-600">External Video</p>
+                              <a 
+                                href={lecture.video_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 text-xs underline"
+                              >
+                                View Video
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
                     <div className="flex space-x-2">
+                      {lecture.video_url && (
+                        <button 
+                          onClick={() => {
+                            // Open in dedicated watch page for better viewing experience
+                            window.open(`/watch/${lecture.id}`, '_blank');
+                          }}
+                          className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-full text-sm hover:from-green-600 hover:to-teal-600"
+                        >
+                          ▶️ Play
+                        </button>
+                      )}
                       <button className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full text-sm">
                         ✏️ Edit
                       </button>

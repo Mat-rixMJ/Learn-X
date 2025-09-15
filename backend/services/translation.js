@@ -1,13 +1,50 @@
-const { Translate } = require('@google-cloud/translate').v2;
+// Safe Google Translate initialization
+let Translate;
+let googleTranslateAvailable = false;
+
+// Check if Google Cloud is available and configured
+const hasGoogleCredentials = () => {
+  return (
+    (process.env.GOOGLE_CLOUD_PROJECT_ID && process.env.GOOGLE_CLOUD_KEY_FILE) ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.GOOGLE_TRANSLATE_API_KEY
+  );
+};
+
+// Only try to load if credentials are available
+if (hasGoogleCredentials()) {
+  try {
+    require.resolve('@google-cloud/translate');
+    ({ Translate } = require('@google-cloud/translate').v2);
+    googleTranslateAvailable = true;
+  } catch (error) {
+    console.warn('Google Translate package not available in translation service');
+  }
+}
 
 class TranslationService {
   constructor() {
-    // Initialize Google Translate (you'll need to set up credentials)
-    this.translate = new Translate({
-      // You can set credentials via environment variable GOOGLE_APPLICATION_CREDENTIALS
-      // or pass them directly here
-      key: process.env.GOOGLE_TRANSLATE_API_KEY, // Alternative: API key method
-    });
+    this.translate = null;
+    
+    // Initialize Google Translate only if available and configured
+    if (googleTranslateAvailable && Translate) {
+      try {
+        const config = {};
+        if (process.env.GOOGLE_TRANSLATE_API_KEY) {
+          config.key = process.env.GOOGLE_TRANSLATE_API_KEY;
+        }
+        if (process.env.GOOGLE_CLOUD_PROJECT_ID) {
+          config.projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+        }
+        if (process.env.GOOGLE_CLOUD_KEY_FILE) {
+          config.keyFilename = process.env.GOOGLE_CLOUD_KEY_FILE;
+        }
+        
+        this.translate = new Translate(config);
+      } catch (error) {
+        console.warn('Failed to initialize Google Translate in TranslationService:', error.message);
+      }
+    }
 
     // Supported languages for live translation
     this.supportedLanguages = {
@@ -39,6 +76,19 @@ class TranslationService {
         throw new Error(`Unsupported target language: ${targetLanguage}`);
       }
 
+      // If Google Translate is not available, return original text
+      if (!this.translate) {
+        console.log('Google Translate not available, returning original text');
+        return {
+          originalText: text,
+          translatedText: `[Translation unavailable: ${text}]`,
+          sourceLanguage: sourceLanguage || 'unknown',
+          targetLanguage,
+          confidence: 0.0,
+          service: 'fallback'
+        };
+      }
+
       const options = {
         to: targetLanguage,
       };
@@ -54,7 +104,8 @@ class TranslationService {
         translatedText: translation,
         sourceLanguage: sourceLanguage || 'auto-detected',
         targetLanguage,
-        confidence: 1.0 // Google Translate doesn't provide confidence scores
+        confidence: 1.0, // Google Translate doesn't provide confidence scores
+        service: 'google'
       };
     } catch (error) {
       console.error('Translation error:', error);

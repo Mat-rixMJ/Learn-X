@@ -46,8 +46,59 @@ app.use(apiLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static file serving for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Static file serving for uploads (non-video files)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: (res, path) => {
+    // Don't cache video files, handle them separately
+    if (path.includes('/videos/')) {
+      return;
+    }
+  }
+}));
+
+// Video streaming endpoint with proper CORS and range support
+app.get('/stream/video/:filename', (req, res) => {
+  const fs = require('fs');
+  const videoPath = path.join(__dirname, 'uploads', 'videos', req.params.filename);
+  
+  // Check if file exists
+  if (!fs.existsSync(videoPath)) {
+    return res.status(404).json({ error: 'Video not found' });
+  }
+
+  const stat = fs.statSync(videoPath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  // Set CORS headers for video streaming
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Range, Content-Range, Content-Length, Accept-Ranges');
+  res.header('Accept-Ranges', 'bytes');
+  res.header('Content-Type', 'video/mp4');
+
+  if (range) {
+    // Parse range header
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    
+    // Create read stream for the requested range
+    const file = fs.createReadStream(videoPath, { start, end });
+    
+    // Set partial content headers
+    res.status(206);
+    res.header('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+    res.header('Content-Length', chunksize.toString());
+    
+    file.pipe(res);
+  } else {
+    // No range header, send entire file
+    res.header('Content-Length', fileSize.toString());
+    fs.createReadStream(videoPath).pipe(res);
+  }
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -80,6 +131,18 @@ const teacherStatsRoutes = require('./routes/teacher-stats');
 const liveSessionsRoutes = require('./routes/live-sessions');
 const scheduledClassesRoutes = require('./routes/scheduled-classes');
 const aiNotesRoutes = require('./routes/ai-notes');
+const breakoutRoomsRoutes = require('./routes/breakout-rooms');
+const translationRoutes = require('./routes/translation');
+const { pythonServicesEnabled } = require('./config/features');
+let pythonServicesRouter = null;
+let setupWebSocketProxy = null;
+if (pythonServicesEnabled) {
+  const pythonModule = require('./routes/python-services');
+  pythonServicesRouter = pythonModule.router;
+  setupWebSocketProxy = pythonModule.setupWebSocketProxy;
+}
+const systemHealthRoute = pythonServicesEnabled ? require('./routes/system-health') : null;
+
 app.use('/api/auth', authRoutes);
 app.use('/api/classes', classRoutes);
 app.use('/api/user', userRoutes);
@@ -88,6 +151,22 @@ app.use('/api/teacher', teacherStatsRoutes);
 app.use('/api/live', liveSessionsRoutes);
 app.use('/api/scheduled', scheduledClassesRoutes);
 app.use('/api/ai-notes', aiNotesRoutes);
+app.use('/api/breakout-rooms', breakoutRoomsRoutes);
+app.use('/api/translate', translationRoutes);
+if (pythonServicesEnabled && pythonServicesRouter) {
+  app.use('/api/python-services', pythonServicesRouter);
+  if (systemHealthRoute) {
+    app.use('/api/system/health', systemHealthRoute);
+  }
+} else {
+  // Stub endpoints when python services disabled
+  app.get('/api/python-services/health', (req,res)=>{
+    res.json({ success:true, overall_status:'disabled', services:{}, timestamp:new Date().toISOString() });
+  });
+  app.get('/api/system/health', (req,res)=>{
+    res.json({ success:true, overall:'python_disabled', python_services:{ enabled:false }, timestamp:new Date().toISOString() });
+  });
+}
 
 // Basic route
 app.get('/', (req, res) => {
@@ -226,6 +305,288 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Breakout Rooms Events
+  socket.on('create-breakout-room', async (data) => {
+    try {
+      const { sessionId, room, assignmentMethod, autoAssign } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can create breakout rooms' });
+        return;
+      }
+
+      // Create the room (implement breakout room storage)
+      const roomId = require('uuid').v4();
+      const newRoom = {
+        id: roomId,
+        sessionId,
+        name: room.name,
+        topic: room.topic,
+        maxParticipants: room.maxParticipants || 4,
+        timeLimit: room.timeLimit || 15,
+        isPrivate: room.isPrivate || false,
+        isActive: false,
+        participants: [],
+        createdAt: new Date()
+      };
+
+      // Store room and notify all participants
+      io.to(sessionId).emit('breakout-room-created', newRoom);
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error creating breakout room:', error);
+      socket.emit('error', { message: 'Failed to create breakout room' });
+    }
+  });
+
+  socket.on('delete-breakout-room', async (data) => {
+    try {
+      const { sessionId, roomId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can delete breakout rooms' });
+        return;
+      }
+
+      // Remove all participants from the room first
+      io.to(`breakout-${roomId}`).emit('breakout-room-deleted', { roomId });
+      
+      // Notify all participants
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error deleting breakout room:', error);
+      socket.emit('error', { message: 'Failed to delete breakout room' });
+    }
+  });
+
+  socket.on('join-breakout-room', async (data) => {
+    try {
+      const { sessionId, roomId, userId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+
+      // Leave current breakout room if in one
+      const currentRooms = Array.from(socket.rooms);
+      const currentBreakoutRoom = currentRooms.find(room => room.startsWith('breakout-'));
+      if (currentBreakoutRoom) {
+        socket.leave(currentBreakoutRoom);
+        socket.to(currentBreakoutRoom).emit('user-left-breakout', {
+          userId: connectionInfo.userId,
+          userName: connectionInfo.userName,
+          roomId: currentBreakoutRoom.replace('breakout-', '')
+        });
+      }
+
+      // Join new breakout room
+      socket.join(`breakout-${roomId}`);
+      socket.to(`breakout-${roomId}`).emit('user-joined-breakout', {
+        userId: connectionInfo.userId,
+        userName: connectionInfo.userName,
+        userRole: connectionInfo.userRole,
+        roomId
+      });
+
+      socket.emit('breakout-room-joined', { roomId });
+      
+      // Update main session participants list
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error joining breakout room:', error);
+      socket.emit('error', { message: 'Failed to join breakout room' });
+    }
+  });
+
+  socket.on('leave-breakout-room', async (data) => {
+    try {
+      const { sessionId, roomId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+
+      // Leave breakout room
+      socket.leave(`breakout-${roomId}`);
+      socket.to(`breakout-${roomId}`).emit('user-left-breakout', {
+        userId: connectionInfo.userId,
+        userName: connectionInfo.userName,
+        roomId
+      });
+
+      socket.emit('breakout-room-left', { roomId });
+      
+      // Update main session participants list
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error leaving breakout room:', error);
+      socket.emit('error', { message: 'Failed to leave breakout room' });
+    }
+  });
+
+  socket.on('start-breakout-session', async (data) => {
+    try {
+      const { sessionId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can start breakout sessions' });
+        return;
+      }
+
+      // Activate all breakout rooms for this session
+      const rooms = await getSessionBreakoutRooms(sessionId);
+      const timeLimit = rooms[0]?.timeLimit || 15; // Use first room's time limit
+      
+      io.to(sessionId).emit('breakout-session-started', { 
+        timeLimit,
+        startTime: Date.now()
+      });
+
+      // Start countdown timer
+      if (timeLimit) {
+        setTimeout(() => {
+          io.to(sessionId).emit('breakout-session-ended', {
+            reason: 'Time limit reached'
+          });
+        }, timeLimit * 60 * 1000);
+      }
+    } catch (error) {
+      console.error('Error starting breakout session:', error);
+      socket.emit('error', { message: 'Failed to start breakout session' });
+    }
+  });
+
+  socket.on('end-breakout-session', async (data) => {
+    try {
+      const { sessionId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can end breakout sessions' });
+        return;
+      }
+
+      // End breakout session for all participants
+      io.to(sessionId).emit('breakout-session-ended', {
+        reason: 'Ended by teacher'
+      });
+
+      // Move all participants back to main session
+      const breakoutRooms = await getSessionBreakoutRooms(sessionId);
+      breakoutRooms.forEach(room => {
+        io.to(`breakout-${room.id}`).emit('return-to-main-session');
+      });
+    } catch (error) {
+      console.error('Error ending breakout session:', error);
+      socket.emit('error', { message: 'Failed to end breakout session' });
+    }
+  });
+
+  socket.on('auto-assign-breakout-rooms', async (data) => {
+    try {
+      const { sessionId, method } = data; // method: 'random' | 'balanced'
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can auto-assign participants' });
+        return;
+      }
+
+      // Get all participants in the session
+      const sessionParticipants = liveStreamingService.getSessionParticipants(sessionId);
+      const breakoutRooms = await getSessionBreakoutRooms(sessionId);
+      
+      if (breakoutRooms.length === 0) {
+        socket.emit('error', { message: 'No breakout rooms available' });
+        return;
+      }
+
+      // Auto-assign participants
+      if (method === 'random') {
+        const shuffled = sessionParticipants.sort(() => Math.random() - 0.5);
+        shuffled.forEach((participant, index) => {
+          const roomIndex = index % breakoutRooms.length;
+          const room = breakoutRooms[roomIndex];
+          
+          // Emit join event for this participant
+          io.to(participant.socketId).emit('auto-assigned-to-room', {
+            roomId: room.id,
+            roomName: room.name
+          });
+        });
+      } else if (method === 'balanced') {
+        const participantsPerRoom = Math.ceil(sessionParticipants.length / breakoutRooms.length);
+        sessionParticipants.forEach((participant, index) => {
+          const roomIndex = Math.floor(index / participantsPerRoom);
+          if (roomIndex < breakoutRooms.length) {
+            const room = breakoutRooms[roomIndex];
+            io.to(participant.socketId).emit('auto-assigned-to-room', {
+              roomId: room.id,
+              roomName: room.name
+            });
+          }
+        });
+      }
+
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error auto-assigning participants:', error);
+      socket.emit('error', { message: 'Failed to auto-assign participants' });
+    }
+  });
+
+  socket.on('move-participant-breakout', async (data) => {
+    try {
+      const { sessionId, participantId, fromRoomId, toRoomId } = data;
+      const connectionInfo = liveStreamingService.userConnections.get(socket.id);
+      
+      if (!connectionInfo || connectionInfo.userRole !== 'teacher') {
+        socket.emit('error', { message: 'Only teachers can move participants' });
+        return;
+      }
+
+      // Find participant's socket
+      const participantSocket = liveStreamingService.findParticipantSocket(participantId);
+      if (!participantSocket) {
+        socket.emit('error', { message: 'Participant not found' });
+        return;
+      }
+
+      // Remove from current room
+      if (fromRoomId) {
+        participantSocket.leave(`breakout-${fromRoomId}`);
+        participantSocket.to(`breakout-${fromRoomId}`).emit('user-left-breakout', {
+          userId: participantId,
+          roomId: fromRoomId
+        });
+      }
+
+      // Add to new room (if specified)
+      if (toRoomId) {
+        participantSocket.join(`breakout-${toRoomId}`);
+        participantSocket.to(`breakout-${toRoomId}`).emit('user-joined-breakout', {
+          userId: participantId,
+          roomId: toRoomId
+        });
+        participantSocket.emit('moved-to-breakout-room', { roomId: toRoomId });
+      } else {
+        participantSocket.emit('moved-to-main-session');
+      }
+
+      io.to(sessionId).emit('breakout-rooms-updated', await getSessionBreakoutRooms(sessionId));
+    } catch (error) {
+      console.error('Error moving participant:', error);
+      socket.emit('error', { message: 'Failed to move participant' });
+    }
+  });
+
   // Handle disconnect
   socket.on('disconnect', () => {
     console.log('💔 Socket disconnected:', socket.id);
@@ -253,6 +614,11 @@ io.on('connection', (socket) => {
     handleLeaveRoom(socket, data);
   });
 });
+
+// Set up WebSocket proxy for Python services (only if enabled)
+if (pythonServicesEnabled && setupWebSocketProxy) {
+  setupWebSocketProxy(server);
+}
 
 // Make live streaming service available to routes
 app.set('liveStreamingService', liveStreamingService);
@@ -337,6 +703,19 @@ function handleLeaveRoom(socket, data) {
 function handleDisconnect(socket) {
   if (socket.roomId && socket.userId) {
     handleLeaveRoom(socket, { roomId: socket.roomId, userId: socket.userId });
+  }
+}
+
+// Helper function to get breakout rooms for a session
+async function getSessionBreakoutRooms(sessionId) {
+  // This is a simplified implementation
+  // In production, you'd fetch from database
+  try {
+    // For now, return empty array - you can implement database storage later
+    return [];
+  } catch (error) {
+    console.error('Error fetching breakout rooms:', error);
+    return [];
   }
 }
 

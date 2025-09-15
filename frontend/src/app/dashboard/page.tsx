@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { authenticatedFetch, validateToken, debugTokenInfo, clearExpiredToken } from '@/utils/auth';
 
 interface DashboardData {
   user: {
@@ -48,6 +49,8 @@ export default function Dashboard() {
   const router = useRouter();
 
   useEffect(() => {
+    // Clear any expired tokens on component mount
+    clearExpiredToken();
     fetchDashboardData();
   }, []);
 
@@ -60,30 +63,46 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
+      // First, validate the token and get debug info
       const token = localStorage.getItem('token');
       if (!token) {
+        console.log('No token found, redirecting to login');
+        router.push('/login');
+        return;
+      }
+
+      // Debug token information
+      debugTokenInfo(token);
+      
+      // Validate token before making the request
+      const tokenInfo = validateToken(token);
+      if (!tokenInfo.valid) {
+        console.log('Token validation failed:', tokenInfo.error);
         router.push('/login');
         return;
       }
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${apiUrl}/api/user/dashboard`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+      const response = await authenticatedFetch(`${apiUrl}/api/user/dashboard`, {
+        method: 'GET'
       });
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data && data.success) {
         setDashboardData(data.data);
       } else {
-        setError(data.message || 'Failed to fetch dashboard data');
+        setError(data?.message || 'Failed to fetch dashboard data');
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err);
+      
+      // Handle authentication errors
+      if (err instanceof Error && err.message.includes('Authentication failed')) {
+        // The authenticatedFetch function will handle the redirect
+        return;
+      }
+      
       setError('Unable to connect to server');
     } finally {
       setLoading(false);
@@ -235,6 +254,11 @@ export default function Dashboard() {
               <Link href="/ai-notes">
                 <button className="w-full px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full hover:from-purple-600 hover:to-pink-600 font-semibold shadow-lg transform hover:scale-105 transition-all duration-200">
                   AI Notes
+                </button>
+              </Link>
+              <Link href="/test-python-services">
+                <button className="w-full px-6 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full hover:from-orange-600 hover:to-red-600 font-semibold shadow-lg transform hover:scale-105 transition-all duration-200">
+                  🐍 Test Python Services
                 </button>
               </Link>
             </div>

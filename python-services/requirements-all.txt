@@ -1,0 +1,49 @@
+# Unified dependency list for all Python microservices
+# (Generated to simplify single-step environment setup)
+
+# Core frameworks
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Async / networking
+aiohttp==3.9.1
+websockets==12.0
+requests==2.31.0
+
+# Audio & speech (audio-service)
+openai-whisper
+faster-whisper
+librosa
+numpy
+soundfile
+scipy
+noisereduce
+torch>=2.0.0
+
+# Translation (translation-service)
+transformers==4.35.2
+sentencepiece==0.1.99
+protobuf==4.25.1
+googletrans==4.0.0-rc1
+
+# Caption & NLP (caption-service)
+webvtt-py==0.4.6
+pysrt==1.1.2
+nltk==3.8.1
+spacy==3.7.2
+regex==2023.10.3
+python-dateutil==2.8.2
+
+# Utilities
+python-dotenv==1.0.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Notes:
+# googletrans may fail on Python 3.13; using Python 3.11 venv mitigates cgi removal issue.
+# Adjust model sizes via environment:
+#   WHISPER_MODEL_SIZE=tiny|base|small|medium|large|large-v3
+#   TRANSLATION_MODEL=facebook/nllb-200-distilled-600M

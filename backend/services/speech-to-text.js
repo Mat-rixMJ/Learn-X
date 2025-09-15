@@ -1,14 +1,41 @@
-const speech = require('@google-cloud/speech');
+// Safe Google Speech initialization
+let speech;
+let googleSpeechAvailable = false;
+
+// Check if Google Cloud is available and configured
+const hasGoogleCredentials = () => {
+  return (
+    (process.env.GOOGLE_CLOUD_PROJECT_ID && process.env.GOOGLE_CLOUD_KEY_FILE) ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+  );
+};
+
+// Only try to load if credentials are available
+if (hasGoogleCredentials()) {
+  try {
+    require.resolve('@google-cloud/speech');
+    speech = require('@google-cloud/speech');
+    googleSpeechAvailable = true;
+  } catch (error) {
+    console.warn('Google Speech package not available in speech-to-text service');
+  }
+}
 
 class SpeechToTextService {
   constructor() {
-    // Initialize Google Speech-to-Text client
-    this.speechClient = new speech.SpeechClient({
-      // You can set credentials via environment variable GOOGLE_APPLICATION_CREDENTIALS
-      // or pass them directly here
-      keyFilename: process.env.GOOGLE_CLOUD_KEY_FILE,
-      projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-    });
+    this.speechClient = null;
+    
+    // Initialize Google Speech-to-Text client only if available and configured
+    if (googleSpeechAvailable && speech) {
+      try {
+        this.speechClient = new speech.SpeechClient({
+          keyFilename: process.env.GOOGLE_CLOUD_KEY_FILE,
+          projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+        });
+      } catch (error) {
+        console.warn('Failed to initialize Google Speech client:', error.message);
+      }
+    }
 
     // Default configuration for live streaming
     this.defaultConfig = {
@@ -28,6 +55,16 @@ class SpeechToTextService {
 
   async startTranscription(sessionId, config = {}) {
     try {
+      // If Google Speech client is not available, return error
+      if (!this.speechClient) {
+        console.log('Google Speech-to-Text not available');
+        return { 
+          success: false, 
+          error: 'Speech-to-Text service not configured',
+          fallback: true
+        };
+      }
+
       const finalConfig = { ...this.defaultConfig, ...config };
       
       const request = {

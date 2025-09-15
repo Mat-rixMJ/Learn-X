@@ -1,16 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-
-interface ChatMessage {
-  id: string;
-  userId: string;
-  userName: string;
-  message: string;
-  timestamp: Date;
-  messageType?: 'chat' | 'system' | 'translation';
-  translations?: { [language: string]: string };
-}
+import { ChatMessage } from '@/types/live-session';
 
 interface ChatPanelProps {
   messages: ChatMessage[];

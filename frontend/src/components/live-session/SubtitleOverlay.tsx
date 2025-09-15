@@ -1,15 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-
-interface LiveCaption {
-  id: string;
-  text: string;
-  confidence: number;
-  timestamp: number;
-  startTime: number;
-  translations?: { [language: string]: string };
-}
+import { LiveCaption } from '@/types/live-session';
 
 interface SubtitleOverlayProps {
   captions: LiveCaption[];
@@ -147,7 +139,7 @@ export default function SubtitleOverlay({
 
       {/* Caption Display */}
       <div className={`absolute left-1/2 transform -translate-x-1/2 ${getPositionClasses()}`}>
-        <div className={`max-w-3xl px-4 py-2 bg-black bg-opacity-80 text-white rounded-lg ${getFontSizeClasses()} ${getConfidenceColor(currentCaption.confidence)} border-l-4`}>
+        <div className={`max-w-3xl px-4 py-2 bg-black bg-opacity-80 text-white rounded-lg ${getFontSizeClasses()} ${getConfidenceColor(currentCaption.confidence || 0.8)} border-l-4`}>
           <div className="text-center">
             {getCaptionText(currentCaption)}
           </div>
@@ -156,11 +148,11 @@ export default function SubtitleOverlay({
           <div className="flex items-center justify-center mt-1 space-x-2">
             <div className="flex items-center space-x-1">
               <div className={`w-2 h-2 rounded-full ${
-                currentCaption.confidence >= 0.8 ? 'bg-green-500' : 
-                currentCaption.confidence >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                (currentCaption.confidence || 0.8) >= 0.8 ? 'bg-green-500' : 
+                (currentCaption.confidence || 0.8) >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
               }`}></div>
               <span className="text-xs opacity-75">
-                {Math.round(currentCaption.confidence * 100)}%
+                {Math.round((currentCaption.confidence || 0.8) * 100)}%
               </span>
             </div>
             
