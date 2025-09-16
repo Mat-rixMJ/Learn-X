@@ -10,7 +10,11 @@ interface AINote {
   subject: string;
   video_file?: File;
   video_url?: string;
+  pdf_file?: File;
   transcript: string;
+  content?: string;
+  summary?: string;
+  key_points?: string[];
   ai_analysis: {
     summary: string;
     key_points: string[];
@@ -20,7 +24,23 @@ interface AINote {
     difficulty_level: string;
     estimated_time: string;
   };
+  important_questions?: string[];
+  highlights?: string[];
+  difficulty?: string;
+  estimated_study_time?: string;
+  quiz?: Array<{
+    question: string;
+    options: string[];
+    correct: number;
+    explanation: string;
+  }>;
+  study_guide?: {
+    filename: string;
+    download_url: string;
+  };
   processing_status: 'pending' | 'processing' | 'completed' | 'failed';
+  processing_method?: string;
+  text_length?: number;
   created_at: string;
   updated_at: string;
 }
@@ -29,7 +49,7 @@ export default function AINotesPage() {
   const router = useRouter();
   const [aiNotes, setAiNotes] = useState<AINote[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'notes' | 'generate'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'generate' | 'pdf'>('notes');
   const [processing, setProcessing] = useState(false);
   const [selectedNote, setSelectedNote] = useState<AINote | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,6 +61,14 @@ export default function AINotesPage() {
   const [videoUrl, setVideoUrl] = useState('');
   const [inputMethod, setInputMethod] = useState<'upload' | 'url' | 'text'>('upload');
   const [textContent, setTextContent] = useState('');
+  
+  // PDF form states
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('');
+  const [pdfSubject, setPdfSubject] = useState('');
+  const [generateStudyGuide, setGenerateStudyGuide] = useState(true);
+  const [pdfProcessing, setPdfProcessing] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
     checkAuthAndLoadNotes();
@@ -144,6 +172,119 @@ export default function AINotesPage() {
     }
   };
 
+  const processPDFWithAI = async () => {
+    if (!pdfTitle || !pdfFile) {
+      alert('Please provide a title and upload a PDF file');
+      return;
+    }
+
+    if (pdfFile.type !== 'application/pdf') {
+      alert('Please upload a valid PDF file');
+      return;
+    }
+
+    setPdfProcessing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      
+      const formData = new FormData();
+      formData.append('pdf', pdfFile);
+      formData.append('title', pdfTitle);
+      formData.append('subject', pdfSubject);
+      formData.append('generate_study_guide', generateStudyGuide.toString());
+
+      const response = await fetch(`${apiUrl}/api/ai-notes/process-pdf`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Transform the response to match our AINote interface
+        const newNote: AINote = {
+          id: data.data.note.id,
+          user_id: 0, // Will be set by backend
+          title: data.data.note.title,
+          subject: pdfSubject,
+          transcript: data.data.note.content || '',
+          content: data.data.note.content,
+          summary: data.data.note.summary,
+          key_points: data.data.note.key_points,
+          important_questions: data.data.important_questions,
+          highlights: data.data.highlights,
+          difficulty: data.data.difficulty,
+          estimated_study_time: data.data.estimated_study_time,
+          quiz: data.data.quiz,
+          study_guide: data.data.study_guide,
+          processing_method: data.data.processing_method,
+          text_length: data.data.text_length,
+          ai_analysis: {
+            summary: data.data.note.summary || '',
+            key_points: data.data.note.key_points || [],
+            important_questions: data.data.important_questions || [],
+            highlights: data.data.highlights || [],
+            topics: data.data.note.tags || [],
+            difficulty_level: data.data.difficulty || 'intermediate',
+            estimated_time: data.data.estimated_study_time || '15-20 minutes'
+          },
+          processing_status: 'completed',
+          created_at: data.data.note.generated_at,
+          updated_at: data.data.note.generated_at
+        };
+        
+        // Add the new note to the list
+        setAiNotes(prev => [newNote, ...prev]);
+        
+        // Reset form
+        setPdfTitle('');
+        setPdfSubject('');
+        setPdfFile(null);
+        setActiveTab('notes');
+        
+        alert(`PDF processed successfully! ${data.data.study_guide ? 'Study guide generated and ready for download.' : ''}`);
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to process PDF: ${errorData.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      alert('Failed to process PDF. Please try again.');
+    } finally {
+      setPdfProcessing(false);
+    }
+  };
+
+  // Drag and drop handlers for PDF
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type === 'application/pdf') {
+        setPdfFile(file);
+        if (!pdfTitle) {
+          setPdfTitle(file.name.replace('.pdf', ''));
+        }
+      } else {
+        alert('Please upload a PDF file');
+      }
+    }
+  };
+
   const deleteNote = async (noteId: number) => {
     if (!confirm('Are you sure you want to delete this note?')) return;
 
@@ -216,7 +357,17 @@ export default function AINotesPage() {
                   : 'text-gray-600 hover:text-indigo-500'
               }`}
             >
-              🎬 Process Content
+              🎬 Process Video
+            </button>
+            <button
+              onClick={() => setActiveTab('pdf')}
+              className={`px-6 py-2 rounded-md font-medium transition-all duration-200 ${
+                activeTab === 'pdf'
+                  ? 'bg-indigo-500 text-white shadow-md'
+                  : 'text-gray-600 hover:text-indigo-500'
+              }`}
+            >
+              📄 Process PDF
             </button>
           </div>
         </div>
@@ -397,6 +548,102 @@ export default function AINotesPage() {
                           ))}
                         </div>
                       </div>
+
+                      {/* Study Guide Download - Only for PDF notes */}
+                      {selectedNote.study_guide && (
+                        <div className="bg-amber-50 rounded-lg p-4">
+                          <h3 className="text-lg font-semibold text-amber-800 mb-3 flex items-center">
+                            📄 Study Guide Available
+                          </h3>
+                          <p className="text-amber-700 text-sm mb-3">
+                            A comprehensive study guide PDF has been generated with all analysis results.
+                          </p>
+                          <a
+                            href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}${selectedNote.study_guide.download_url}`}
+                            download
+                            className="inline-flex items-center bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors"
+                          >
+                            <span className="mr-2">📥</span>
+                            Download Study Guide
+                          </a>
+                        </div>
+                      )}
+
+                      {/* Interactive Quiz - Only for PDF notes */}
+                      {selectedNote.quiz && selectedNote.quiz.length > 0 && (
+                        <div className="bg-blue-50 rounded-lg p-4">
+                          <h3 className="text-lg font-semibold text-blue-800 mb-3 flex items-center">
+                            🎯 Quick Quiz
+                          </h3>
+                          <div className="space-y-4">
+                            {selectedNote.quiz.map((question, qIndex) => (
+                              <div key={qIndex} className="bg-white rounded-lg p-4 border border-blue-200">
+                                <p className="font-medium text-gray-800 mb-3">
+                                  {qIndex + 1}. {question.question}
+                                </p>
+                                <div className="space-y-2">
+                                  {question.options.map((option, oIndex) => (
+                                    <div
+                                      key={oIndex}
+                                      className={`p-2 rounded border ${
+                                        oIndex === question.correct
+                                          ? 'bg-green-100 border-green-300 text-green-800'
+                                          : 'bg-gray-50 border-gray-200 text-gray-700'
+                                      }`}
+                                    >
+                                      <span className="font-medium mr-2">
+                                        {String.fromCharCode(65 + oIndex)}.
+                                      </span>
+                                      {option}
+                                      {oIndex === question.correct && (
+                                        <span className="ml-2 text-green-600">✅</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="mt-3 p-2 bg-blue-50 rounded border border-blue-200">
+                                  <p className="text-sm text-blue-700">
+                                    <span className="font-medium">💡 Explanation:</span> {question.explanation}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Processing Method Info */}
+                      {selectedNote.processing_method && (
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center">
+                            ⚙️ Processing Details
+                          </h3>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-600">Method:</span>
+                              <span className="ml-2 text-gray-800">{selectedNote.processing_method}</span>
+                            </div>
+                            {selectedNote.text_length && (
+                              <div>
+                                <span className="font-medium text-gray-600">Content Length:</span>
+                                <span className="ml-2 text-gray-800">{selectedNote.text_length.toLocaleString()} chars</span>
+                              </div>
+                            )}
+                            {selectedNote.difficulty && (
+                              <div>
+                                <span className="font-medium text-gray-600">Difficulty:</span>
+                                <span className="ml-2 text-gray-800 capitalize">{selectedNote.difficulty}</span>
+                              </div>
+                            )}
+                            {selectedNote.estimated_study_time && (
+                              <div>
+                                <span className="font-medium text-gray-600">Study Time:</span>
+                                <span className="ml-2 text-gray-800">{selectedNote.estimated_study_time}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -407,13 +654,13 @@ export default function AINotesPage() {
                 )}
               </div>
             </div>
-          ) : (
-            /* Process Content Tab */
+          ) : activeTab === 'generate' ? (
+            /* Process Video Content Tab */
             <div className="max-w-4xl mx-auto">
               <div className="bg-white rounded-lg shadow-lg p-8">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center flex items-center justify-center">
                   <span className="mr-2">🎬</span>
-                  Process Content with AI (Gemini)
+                  Process Video Content with AI
                 </h2>
                 
                 <div className="space-y-6">
@@ -507,6 +754,11 @@ export default function AINotesPage() {
                             Supports MP4, AVI, MOV, etc.
                           </p>
                         </label>
+                        {videoFile && (
+                          <p className="text-sm text-green-600 mt-2">
+                            Selected: {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -578,6 +830,168 @@ export default function AINotesPage() {
                         <span className="flex items-center justify-center">
                           <span className="mr-2">🚀</span>
                           Process with Gemini AI
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Process PDF Tab */
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-lg shadow-lg p-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center flex items-center justify-center">
+                  <span className="mr-2">📄</span>
+                  Process PDF with Local AI
+                </h2>
+                
+                <div className="space-y-6">
+                  {/* Basic Info */}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Title *
+                      </label>
+                      <input
+                        type="text"
+                        value={pdfTitle}
+                        onChange={(e) => setPdfTitle(e.target.value)}
+                        placeholder="e.g., Financial Analysis Study Guide"
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Subject
+                      </label>
+                      <input
+                        type="text"
+                        value={pdfSubject}
+                        onChange={(e) => setPdfSubject(e.target.value)}
+                        placeholder="e.g., Finance, Mathematics"
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* PDF Upload with Drag & Drop */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Upload PDF File *
+                    </label>
+                    <div
+                      className={`w-full p-8 border-2 border-dashed rounded-lg text-center transition-all duration-200 ${
+                        dragActive
+                          ? 'border-indigo-500 bg-indigo-50'
+                          : pdfFile
+                          ? 'border-green-500 bg-green-50'
+                          : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
+                      }`}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                    >
+                      {pdfFile ? (
+                        <div className="text-green-600">
+                          <div className="text-4xl mb-2">📄</div>
+                          <p className="font-medium">{pdfFile.name}</p>
+                          <p className="text-sm">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                          <button
+                            onClick={() => setPdfFile(null)}
+                            className="mt-2 text-red-500 hover:text-red-700 text-sm"
+                          >
+                            Remove file
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-gray-500">
+                          <div className="text-4xl mb-2">📁</div>
+                          <p className="font-medium">Drag & drop your PDF here</p>
+                          <p className="text-sm">or click to browse</p>
+                          <input
+                            type="file"
+                            accept=".pdf"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setPdfFile(file);
+                                if (!pdfTitle) {
+                                  setPdfTitle(file.name.replace('.pdf', ''));
+                                }
+                              }
+                            }}
+                            className="hidden"
+                            id="pdf-upload"
+                          />
+                          <label
+                            htmlFor="pdf-upload"
+                            className="mt-4 inline-block bg-indigo-500 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-indigo-600"
+                          >
+                            Choose PDF File
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Study Guide Generation Option */}
+                  <div className="bg-amber-50 rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="generate-study-guide"
+                        checked={generateStudyGuide}
+                        onChange={(e) => setGenerateStudyGuide(e.target.checked)}
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor="generate-study-guide" className="flex-1">
+                        <div className="font-medium text-amber-800">
+                          📚 Generate Study Guide PDF
+                        </div>
+                        <div className="text-sm text-amber-700">
+                          Create a downloadable PDF with summary, key points, questions, and quiz
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* AI Processing Info */}
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <h3 className="font-medium text-green-800 mb-2 flex items-center">
+                      <span className="mr-2">🤖</span>
+                      Local AI Processing
+                    </h3>
+                    <p className="text-green-700 text-sm">
+                      Your PDF will be processed locally using advanced heuristic analysis to generate:
+                    </p>
+                    <ul className="text-green-700 text-sm mt-2 space-y-1">
+                      <li>• Comprehensive summary and key insights</li>
+                      <li>• Important concepts and key points</li>
+                      <li>• Study questions for better understanding</li>
+                      <li>• Interactive quiz with explanations</li>
+                      <li>• Downloadable study guide (optional)</li>
+                      <li>• Difficulty assessment and study time estimation</li>
+                    </ul>
+                  </div>
+
+                  {/* Process Button */}
+                  <div className="text-center">
+                    <button
+                      onClick={processPDFWithAI}
+                      disabled={pdfProcessing || !pdfTitle || !pdfFile}
+                      className="bg-gradient-to-r from-green-500 to-blue-600 text-white px-8 py-4 rounded-lg font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:from-green-600 hover:to-blue-700 transition-all duration-200"
+                    >
+                      {pdfProcessing ? (
+                        <span className="flex items-center justify-center">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                          Processing PDF...
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-center">
+                          <span className="mr-2">🚀</span>
+                          Process PDF with Local AI
                         </span>
                       )}
                     </button>

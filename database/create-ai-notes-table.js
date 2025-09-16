@@ -1,4 +1,4 @@
-const { Pool } = require('../backend/node_modules/pg');
+const { Pool } = require('pg');
 
 const pool = new Pool({
   user: 'postgres',

@@ -1,4 +1,4 @@
-const { Pool } = require('../backend/node_modules/pg');
+const { Pool } = require('pg');
 
 const pool = new Pool({
   user: 'postgres',
@@ -41,7 +41,7 @@ async function createUsersTable() {
     console.log('✅ Indexes created successfully');
 
     // Insert a test user
-    const bcrypt = require('../backend/node_modules/bcryptjs');
+    const bcrypt = require('bcryptjs');
     const hashedPassword = await bcrypt.hash('test123', 10);
 
     const insertQuery = `

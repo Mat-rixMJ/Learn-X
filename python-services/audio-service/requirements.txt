@@ -10,8 +10,8 @@ python-multipart==0.0.6
 # Machine Learning and Audio Processing
 torch>=2.0.0
 torchaudio>=2.0.0
-openai-whisper==20231117
-faster-whisper==0.9.0
+openai-whisper
+faster-whisper
 
 # Audio processing libraries
 librosa==0.10.1
@@ -30,7 +30,9 @@ pydantic==2.5.0
 logging==0.4.9.6
 
 # Additional audio utilities
-pyaudio==0.2.11  # For microphone input
+# pyaudio is optional and requires PortAudio build tools on Windows. Commented out to prevent build failures.
+# Uncomment if you have PortAudio installed or don't need microphone support.
+# pyaudio==0.2.11  # For microphone input (optional)
 webrtcvad==2.0.10  # Voice activity detection
 pydub==0.25.1  # Audio format conversion
 

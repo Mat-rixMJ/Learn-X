@@ -1,0 +1,14 @@
+# Central constraints to harmonize NLP / ML stack across services
+# Chosen versions satisfy sentence-transformers >=5.1.0 and transformers <5.0.0 requirements
+
+huggingface-hub==0.40.2
+transformers==4.45.2
+sentence-transformers==3.1.1
+# tokenizers pinned to version compatible with transformers 4.45.2
+tokenizers==0.20.0
+# datasets version compatible with above HF stack
+datasets==2.21.0
+# Ensure protobuf not too old
+protobuf==4.25.3
+# Optional: accelerate for better performance (only if GPU)
+accelerate==0.34.2

@@ -16,7 +16,8 @@
     "dev:all": "powershell -ExecutionPolicy Bypass -File start-system-simple.ps1",
     "dev:all:node": "node scripts/start-all.js",
     "python:ensure": "powershell -ExecutionPolicy Bypass -File python-services/ensure-python-services.ps1",
-  "start:full": "node scripts/start-full.js",
+    "setup:local-ai": "setup-local-ai.bat",
+    "start:full": "node scripts/start-full.js",
     "start:frontend": "cd frontend && npm start",
     "start:backend": "cd backend && npm start",
     "build:frontend": "cd frontend && npm run build",
@@ -37,5 +38,8 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "form-data": "^4.0.4"
   }
 }

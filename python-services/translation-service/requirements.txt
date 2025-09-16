@@ -9,21 +9,21 @@ aiohttp==3.9.1
 
 # Machine Learning and NLP
 torch>=2.0.0
-transformers==4.35.2
-sentencepiece==0.1.99
-protobuf==4.25.1
+transformers
+sentencepiece
+protobuf
 
 # Translation services
 googletrans==4.0.0-rc1
 requests==2.31.0
 
 # Database and caching
-sqlite3  # Built-in Python module
+## Removed sqlite3 (built-in) to avoid pip error; Python provides sqlite3 module natively
 datasets==2.14.7  # For model caching
 
 # Development and utilities
 python-dotenv==1.0.0
-asyncio  # Built-in Python module
+## Removed asyncio (built-in) – no need to install
 
 # Optional: Advanced models (large downloads)
 # torch-audio>=2.0.0

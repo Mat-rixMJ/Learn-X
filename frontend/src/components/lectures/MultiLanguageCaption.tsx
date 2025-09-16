@@ -206,8 +206,13 @@ export default function MultiLanguageCaption({
     };
 
     recognitionInstance.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      setError(`Speech recognition error: ${event.error}`);
+      // Only log non-critical errors, don't show to user
+      if (event.error === 'aborted' || event.error === 'no-speech') {
+        console.debug('Speech recognition stopped:', event.error);
+      } else {
+        console.error('Speech recognition error:', event.error);
+        setError(`Speech recognition error: ${event.error}`);
+      }
       setIsListening(false);
     };
 
