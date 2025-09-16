@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const pdfParse = require('pdf-parse');
+const PDFDocument = require('pdfkit');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
@@ -13,10 +15,15 @@ const pool = require('../config/database');
 const GeminiAIService = require('../services/gemini-ai');
 const geminiAI = new GeminiAIService();
 
-// Configure multer for video uploads
+// Configure multer for video and PDF uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/videos');
+    let uploadDir;
+    if (file.mimetype === 'application/pdf') {
+      uploadDir = path.join(__dirname, '../uploads/pdfs');
+    } else {
+      uploadDir = path.join(__dirname, '../uploads/videos');
+    }
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -32,14 +39,14 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /mp4|avi|mov|wmv|flv|webm/;
+    const allowedTypes = /mp4|avi|mov|wmv|flv|webm|pdf/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    const mimetype = allowedTypes.test(file.mimetype) || file.mimetype === 'application/pdf';
     
     if (mimetype && extname) {
       return cb(null, true);
     } else {
-      cb(new Error('Only video files are allowed'));
+      cb(new Error('Only video files and PDF files are allowed'));
     }
   }
 });
@@ -587,6 +594,617 @@ router.post('/process-video', upload.single('video'), async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to process video: ' + error.message 
+    });
+  }
+});
+
+// PDF Processing Helper Functions
+const generatePDFSummary = (text, maxSentences = 5) => {
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+  if (sentences.length <= maxSentences) return sentences.join('. ').trim() + '.';
+  
+  const summary = [
+    sentences[0],
+    ...sentences.slice(Math.floor(sentences.length * 0.3), Math.floor(sentences.length * 0.7)).slice(0, maxSentences - 2),
+    sentences[sentences.length - 1]
+  ];
+  
+  return summary.join('. ').trim() + '.';
+};
+
+const extractKeyPoints = (text) => {
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 15);
+  const keywords = ['important', 'key', 'main', 'primary', 'essential', 'significant', 'crucial'];
+  
+  const keyPoints = sentences
+    .filter(sentence => 
+      keywords.some(keyword => sentence.toLowerCase().includes(keyword)) ||
+      sentence.length > 50
+    )
+    .slice(0, 8)
+    .map(point => point.trim());
+    
+  if (keyPoints.length < 3) {
+    const generalPoints = sentences.slice(0, 5).map(s => s.trim());
+    keyPoints.push(...generalPoints);
+  }
+  
+  return keyPoints.slice(0, 8);
+};
+
+const generateStudyQuestions = (text, title) => {
+  const questions = [
+    `What are the main concepts covered in "${title}"?`,
+    `How would you summarize the key points of this document?`,
+    `What are the most important takeaways from this material?`,
+  ];
+  
+  const words = text.toLowerCase().split(/\s+/);
+  if (words.includes('algorithm') || words.includes('method')) {
+    questions.push('What algorithms or methods are discussed?');
+  }
+  if (words.includes('example') || words.includes('case')) {
+    questions.push('What examples are provided to illustrate the concepts?');
+  }
+  if (words.includes('problem') || words.includes('solution')) {
+    questions.push('What problems and solutions are presented?');
+  }
+  
+  return questions.slice(0, 6);
+};
+
+const generateQuickQuiz = (text, title) => {
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
+  const words = text.toLowerCase().split(/\s+/);
+  
+  const quiz = [];
+  
+  quiz.push({
+    question: `What is the main topic of "${title}"?`,
+    options: [
+      title.split(' ')[0] || 'Main concept',
+      'Secondary topic',
+      'Related subject',
+      'Different topic'
+    ],
+    correct: 0,
+    explanation: 'This document focuses on ' + title
+  });
+  
+  if (sentences.length > 2) {
+    const firstSentence = sentences[0].trim();
+    quiz.push({
+      question: 'According to the document, what is mentioned first?',
+      options: [
+        firstSentence.substring(0, 50) + '...',
+        'Different concept',
+        'Alternative topic',
+        'Unrelated information'
+      ],
+      correct: 0,
+      explanation: 'The document begins by discussing: ' + firstSentence.substring(0, 100) + '...'
+    });
+  }
+  
+  const conceptWords = words.filter(w => w.length > 6);
+  if (conceptWords.length > 5) {
+    const concept = conceptWords[Math.floor(conceptWords.length / 2)];
+    quiz.push({
+      question: `Which concept is discussed in this document?`,
+      options: [
+        concept.charAt(0).toUpperCase() + concept.slice(1),
+        'Unrelated concept A',
+        'Unrelated concept B',
+        'Different topic entirely'
+      ],
+      correct: 0,
+      explanation: `The document discusses ${concept} among other topics.`
+    });
+  }
+  
+  return quiz.slice(0, 3);
+};
+
+const generateSamplePDF = async (title = 'Sample Study Material', content = null) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument();
+    const filename = `sample-${Date.now()}.pdf`;
+    const filepath = path.join(__dirname, '../uploads/pdfs', filename);
+    
+    const uploadDir = path.dirname(filepath);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    const stream = fs.createWriteStream(filepath);
+    doc.pipe(stream);
+    
+    doc.fontSize(20).text(title, 100, 100);
+    doc.moveDown();
+    
+    const sampleContent = content || `
+This is a sample educational document about ${title}.
+
+Key Concepts:
+- Understanding the fundamental principles
+- Exploring practical applications
+- Analyzing real-world examples
+- Developing problem-solving skills
+
+Important Points:
+The main objective is to provide comprehensive coverage of the topic. 
+Students should focus on understanding the core concepts rather than memorizing details.
+Practice exercises are essential for mastering the material.
+
+Applications:
+This knowledge can be applied in various scenarios including academic research, 
+professional development, and practical problem-solving situations.
+
+Conclusion:
+Mastery of these concepts requires consistent practice and application. 
+The key to success is understanding the underlying principles and being able to 
+apply them in different contexts.
+    `;
+    
+    doc.fontSize(12).text(sampleContent, 100, 150, { width: 400 });
+    doc.end();
+    
+    stream.on('finish', () => {
+      console.log('PDF generation completed:', filepath);
+      resolve(filepath);
+    });
+    stream.on('error', reject);
+  });
+};
+
+const generateStudyGuidePDF = async (title, analysis, quiz, textLength, pdfInfo) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50 });
+    const filename = `study-guide-${Date.now()}.pdf`;
+    const filepath = path.join(__dirname, '../uploads/pdfs', filename);
+    
+    const uploadDir = path.dirname(filepath);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    const stream = fs.createWriteStream(filepath);
+    doc.pipe(stream);
+    
+    // Title Page
+    doc.fontSize(24).fillColor('#2563eb').text('📚 Study Guide', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(18).fillColor('#000000').text(title, { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(12).fillColor('#666666').text(`Generated on ${new Date().toLocaleDateString()}`, { align: 'center' });
+    doc.moveDown(1);
+    
+    // Document Info
+    doc.fontSize(14).fillColor('#059669').text('📄 Document Information', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#000000')
+      .text(`Original File: ${pdfInfo.filename}`)
+      .text(`File Size: ${Math.round(pdfInfo.size_bytes / 1024)} KB`)
+      .text(`Content Length: ${textLength.toLocaleString()} characters`)
+      .text(`Estimated Study Time: ${analysis.estimated_study_time || '15-20 minutes'}`)
+      .text(`Difficulty Level: ${analysis.difficulty_level || 'Intermediate'}`);
+    doc.moveDown(1);
+    
+    // Summary Section
+    doc.fontSize(14).fillColor('#059669').text('📋 Summary', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#000000').text(analysis.summary || 'No summary available', { 
+      width: 500, 
+      align: 'justify' 
+    });
+    doc.moveDown(1);
+    
+    // Key Points Section
+    if (analysis.key_points && analysis.key_points.length > 0) {
+      doc.fontSize(14).fillColor('#059669').text('🔑 Key Points', { underline: true });
+      doc.moveDown(0.5);
+      analysis.key_points.forEach((point, index) => {
+        doc.fontSize(11).fillColor('#000000').text(`${index + 1}. ${point}`, { 
+          width: 500, 
+          align: 'justify' 
+        });
+        doc.moveDown(0.3);
+      });
+      doc.moveDown(0.7);
+    }
+    
+    // Important Questions Section
+    if (analysis.important_questions && analysis.important_questions.length > 0) {
+      doc.fontSize(14).fillColor('#059669').text('❓ Study Questions', { underline: true });
+      doc.moveDown(0.5);
+      analysis.important_questions.forEach((question, index) => {
+        doc.fontSize(11).fillColor('#000000').text(`${index + 1}. ${question}`, { 
+          width: 500, 
+          align: 'justify' 
+        });
+        doc.moveDown(0.3);
+      });
+      doc.moveDown(0.7);
+    }
+    
+    // Highlights Section
+    if (analysis.highlights && analysis.highlights.length > 0) {
+      doc.fontSize(14).fillColor('#059669').text('✨ Key Highlights', { underline: true });
+      doc.moveDown(0.5);
+      analysis.highlights.forEach((highlight, index) => {
+        doc.fontSize(11).fillColor('#000000').text(`• ${highlight}`, { 
+          width: 500, 
+          align: 'justify' 
+        });
+        doc.moveDown(0.3);
+      });
+      doc.moveDown(0.7);
+    }
+    
+    // Start new page for quiz if content is getting long
+    if (doc.y > 650) {
+      doc.addPage();
+    }
+    
+    // Quiz Section
+    if (quiz && quiz.length > 0) {
+      doc.fontSize(14).fillColor('#059669').text('🎯 Quick Quiz', { underline: true });
+      doc.moveDown(0.5);
+      
+      quiz.forEach((q, index) => {
+        // Question
+        doc.fontSize(12).fillColor('#1f2937').text(`Question ${index + 1}: ${q.question}`, { 
+          width: 500 
+        });
+        doc.moveDown(0.3);
+        
+        // Options
+        ['A', 'B', 'C', 'D'].forEach((letter, optIndex) => {
+          const isCorrect = optIndex === q.correct;
+          const prefix = isCorrect ? '✅' : '   ';
+          doc.fontSize(10).fillColor(isCorrect ? '#059669' : '#374151')
+            .text(`${prefix} ${letter}. ${q.options[optIndex]}`, { 
+              width: 480,
+              indent: 20
+            });
+          doc.moveDown(0.2);
+        });
+        
+        // Explanation
+        doc.fontSize(10).fillColor('#6b7280').text(`💡 ${q.explanation}`, { 
+          width: 480,
+          indent: 20
+        });
+        doc.moveDown(0.5);
+        
+        // Add page break if needed
+        if (doc.y > 680 && index < quiz.length - 1) {
+          doc.addPage();
+        }
+      });
+    }
+    
+    // Footer
+    doc.fontSize(8).fillColor('#9ca3af').text(
+      `Generated by Learn-X AI Assistant • ${new Date().toISOString()}`,
+      50,
+      doc.page.height - 50,
+      { align: 'center' }
+    );
+    
+    doc.end();
+    
+    stream.on('finish', () => {
+      console.log('📄 Study guide PDF generated:', filepath);
+      resolve({ filepath, filename });
+    });
+    stream.on('error', reject);
+  });
+};
+
+// POST /api/ai-notes/process-pdf - Process PDF for AI analysis
+router.post('/process-pdf', upload.single('pdf'), async (req, res) => {
+  try {
+    console.log('📄 Processing PDF request...');
+    console.log('Request body:', req.body);
+    console.log('Request file:', req.file);
+    
+    const { title, subject, generate_sample } = req.body;
+    const pdfSubject = (subject && String(subject).trim()) || 'General';
+    
+    if (!title) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Title is required' 
+      });
+    }
+
+    let pdfPath = null;
+    let extractedText = '';
+
+    if (generate_sample === 'true' || generate_sample === true) {
+      console.log('📋 Generating sample PDF...');
+      try {
+        pdfPath = await generateSamplePDF(title);
+        console.log('✅ Sample PDF generated:', pdfPath);
+      } catch (error) {
+        console.error('❌ Failed to generate sample PDF:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to generate sample PDF: ' + error.message
+        });
+      }
+    } else if (req.file) {
+      console.log('📎 Processing uploaded PDF...');
+      console.log('📂 File info:', {
+        originalname: req.file.originalname,
+        filename: req.file.filename,
+        path: req.file.path,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+      pdfPath = req.file.path;
+      console.log('📍 Using PDF path:', pdfPath);
+      
+      // Verify file exists
+      if (!fs.existsSync(pdfPath)) {
+        console.error('❌ Uploaded file not found at:', pdfPath);
+        return res.status(500).json({
+          success: false,
+          message: `Uploaded file not found at: ${pdfPath}`
+        });
+      }
+      console.log('✅ File exists, size:', fs.statSync(pdfPath).size, 'bytes');
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please upload a PDF file or set generate_sample=true' 
+      });
+    }
+
+    try {
+      console.log('🔍 Extracting text from PDF...');
+      const pdfBuffer = fs.readFileSync(pdfPath);
+      const pdfData = await pdfParse(pdfBuffer);
+      extractedText = pdfData.text.trim();
+      
+      if (!extractedText || extractedText.length < 10) {
+        throw new Error('No readable text found in PDF');
+      }
+      
+      console.log(`✅ Extracted ${extractedText.length} characters from PDF`);
+    } catch (error) {
+      console.error('❌ PDF text extraction failed:', error);
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to extract text from PDF: ' + error.message
+      });
+    }
+
+    console.log('🧠 Analyzing PDF content...');
+    
+    const analysis = {
+      summary: generatePDFSummary(extractedText),
+      key_points: extractKeyPoints(extractedText),
+      important_questions: generateStudyQuestions(extractedText, title),
+      highlights: extractKeyPoints(extractedText).slice(0, 5),
+      topics: [title, pdfSubject, 'Key Concepts', 'Study Material'],
+      difficulty_level: extractedText.length > 2000 ? 'intermediate' : 'beginner',
+      estimated_study_time: `${Math.max(5, Math.ceil(extractedText.length / 300))} minutes`
+    };
+
+    console.log('Analysis generated:', {
+      summary_length: analysis.summary.length,
+      key_points_count: analysis.key_points.length,
+      key_points_sample: analysis.key_points[0]
+    });
+
+    const quiz = generateQuickQuiz(extractedText, title);
+
+    // Create or get special lecture record for PDF processing
+    let lectureId;
+    try {
+      const pdfLectureQuery = `
+        INSERT INTO recorded_lectures (
+          title, description, class_id, teacher_id, video_url, is_public
+        ) VALUES ($1, $2, NULL, NULL, $3, true)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      `;
+      
+      let lectureResult = await pool.query(pdfLectureQuery, [
+        `PDF Processing: ${title}`,
+        `Auto-generated lecture for PDF: ${title}`,
+        pdfPath
+      ]);
+      
+      if (lectureResult.rows.length === 0) {
+        // If conflict occurred, find existing
+        const findQuery = `
+          SELECT id FROM recorded_lectures 
+          WHERE title = $1 AND video_url = $2
+        `;
+        lectureResult = await pool.query(findQuery, [
+          `PDF Processing: ${title}`,
+          pdfPath
+        ]);
+      }
+      
+      lectureId = lectureResult.rows[0].id;
+    } catch (error) {
+      console.warn('Could not create lecture record, using fallback approach:', error.message);
+      // Fallback: find any existing lecture or create minimal one
+      try {
+        const fallbackQuery = `
+          SELECT id FROM recorded_lectures LIMIT 1
+        `;
+        const fallbackResult = await pool.query(fallbackQuery);
+        if (fallbackResult.rows.length > 0) {
+          lectureId = fallbackResult.rows[0].id;
+        } else {
+          throw new Error('No lectures exist in database');
+        }
+      } catch (fallbackError) {
+        return res.status(500).json({
+          success: false,
+          message: 'Cannot process PDF: No lecture context available'
+        });
+      }
+    }
+
+    const insertQuery = `
+      INSERT INTO ai_notes (
+        lecture_id, user_id, title, content, summary, key_points, tags, confidence_score, generated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+      RETURNING *
+    `;
+
+    const values = [
+      lectureId,
+      null, // user_id - null for now (would need authentication)
+      `PDF: ${title}`,
+      extractedText.substring(0, 5000), // content - truncated text
+      analysis.summary || 'PDF content analyzed',
+      JSON.stringify(analysis.key_points || []), // JSONB expects string
+      analysis.topics || [], // TEXT[] for tags
+      0.95 // confidence_score
+    ];
+
+    const result = await pool.query(insertQuery, values);
+    const savedNote = result.rows[0];
+
+    // Get file info before cleanup
+    const pdfInfo = {
+      filename: path.basename(pdfPath),
+      generated: generate_sample === 'true' || generate_sample === true,
+      size_bytes: fs.existsSync(pdfPath) ? fs.statSync(pdfPath).size : 0
+    };
+
+    // Optionally generate study guide PDF
+    let studyGuideInfo = null;
+    const generateStudyGuide = req.body.generate_study_guide || req.query.generate_study_guide;
+    
+    if (generateStudyGuide === 'true' || generateStudyGuide === true) {
+      try {
+        console.log('📄 Generating study guide PDF...');
+        const studyGuideResult = await generateStudyGuidePDF(
+          `PDF: ${title}`,
+          analysis,
+          quiz,
+          extractedText.length,
+          pdfInfo
+        );
+        studyGuideInfo = {
+          filename: studyGuideResult.filename,
+          filepath: studyGuideResult.filepath,
+          download_url: `/api/ai-notes/download-study-guide/${studyGuideResult.filename}`
+        };
+        console.log('✅ Study guide PDF generated successfully');
+      } catch (studyGuideError) {
+        console.warn('⚠️ Failed to generate study guide PDF:', studyGuideError.message);
+      }
+    }
+
+    if (pdfPath && req.file && fs.existsSync(pdfPath)) {
+      try {
+        fs.unlinkSync(pdfPath);
+        console.log('🧹 Cleaned up uploaded PDF file');
+      } catch (error) {
+        console.warn('⚠️ Could not clean up PDF file:', error.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'PDF processed successfully',
+      data: {
+        note: {
+          id: savedNote.id,
+          title: savedNote.title,
+          content: savedNote.content,
+          summary: savedNote.summary,
+          key_points: typeof savedNote.key_points === 'string' ? JSON.parse(savedNote.key_points) : savedNote.key_points,
+          tags: Array.isArray(savedNote.tags) ? savedNote.tags : [],
+          confidence_score: savedNote.confidence_score,
+          generated_at: savedNote.generated_at
+        },
+        // Include analysis data that's not stored in DB
+        important_questions: analysis.important_questions,
+        highlights: analysis.highlights,
+        difficulty: analysis.difficulty_level,
+        estimated_study_time: analysis.estimated_study_time,
+        quiz: quiz,
+        text_length: extractedText.length,
+        processing_method: 'heuristic_analysis',
+        pdf_info: pdfInfo,
+        study_guide: studyGuideInfo
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error processing PDF:', error);
+    
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupError) {
+        console.warn('⚠️ Could not clean up file on error:', cleanupError.message);
+      }
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to process PDF: ' + error.message 
+    });
+  }
+});
+
+// GET /api/ai-notes/download-study-guide/:filename - Download generated study guide PDF
+router.get('/download-study-guide/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Validate filename to prevent directory traversal
+    if (!filename || filename.includes('..') || !filename.endsWith('.pdf')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid filename'
+      });
+    }
+    
+    const filepath = path.join(__dirname, '../uploads/pdfs', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study guide not found'
+      });
+    }
+    
+    // Set headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Stream the file
+    const fileStream = fs.createReadStream(filepath);
+    fileStream.pipe(res);
+    
+    fileStream.on('error', (error) => {
+      console.error('Error streaming study guide PDF:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Error downloading study guide'
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in download study guide:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download study guide'
     });
   }
 });

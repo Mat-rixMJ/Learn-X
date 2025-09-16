@@ -459,7 +459,7 @@ router.post('/translate', authenticateToken, async (req, res) => {
 });
 
 // POST /api/translate/instant - Ultra-fast translation for real-time captions
-router.post('/translate/instant', authenticateToken, async (req, res) => {
+router.post('/instant', authenticateToken, async (req, res) => {
   try {
     const { text, targetLanguage, sourceLanguage = 'en' } = req.body;
 

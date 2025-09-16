@@ -1,0 +1,44 @@
+# Local AI Service Dependencies for Learn-X
+# Install with: pip install -r local-ai-requirements.txt
+
+# Core AI/ML libraries
+torch>=2.0.0
+transformers>=4.30.0
+openai-whisper>=20231117
+sentence-transformers>=2.2.0
+
+# NLP libraries
+nltk>=3.8
+spacy>=3.6.0
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.6.0/en_core_web_sm-3.6.0-py3-none-any.whl
+
+# Audio/Video processing
+ffmpeg-python>=0.2.0
+
+# Utility libraries
+torch>=2.0.0
+transformers>=4.30.0
+openai-whisper>=20231117
+sentence-transformers>=2.2.0
+
+# NLP libraries
+nltk>=3.8
+spacy>=3.6.0
+# spaCy model will be installed via: python -m spacy download en_core_web_sm
+
+# Audio/Video processing
+ffmpeg-python>=0.2.0
+
+# Utility libraries
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+tqdm>=4.65.0
+
+# Optional GPU acceleration
+# torch-audio  # Uncomment if using GPU
+# torchaudio   # Uncomment if using GPU
+
+# Alternative lightweight models (uncomment if needed)
+# onnxruntime>=1.15.0
+# onnx>=1.14.0

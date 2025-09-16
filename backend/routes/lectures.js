@@ -259,17 +259,22 @@ router.get('/:id', authenticateToken, async (req, res) => {
       title: lecture.title,
       description: lecture.description,
       teacher: lecture.teacher_full_name || lecture.teacher_name,
+      instructor_name: lecture.teacher_full_name || lecture.teacher_name,
+      class_name: lecture.class_name,
       className: lecture.class_name,
       subject: lecture.subject,
+      recorded_at: lecture.recorded_at,
       date: lecture.recorded_at,
       duration: lecture.duration_seconds ? `${Math.ceil(lecture.duration_seconds / 60)} min` : 'Unknown',
       durationSeconds: lecture.duration_seconds,
       transcript: lecture.transcript,
       summary: lecture.ai_summary,
+      video_url: lecture.video_url, // Add this field that frontend expects
       downloadUrl: lecture.video_url,
       audioUrl: lecture.audio_url,
       slidesUrl: lecture.slides_url,
       fileSize: lecture.file_size_bytes,
+      is_public: lecture.is_public,
       isPublic: lecture.is_public,
       isProcessed: lecture.is_processed
     };
