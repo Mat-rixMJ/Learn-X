@@ -1,0 +1,45 @@
+{
+  "name": "learn-x",
+  "version": "1.0.0",
+  "description": "Learn-X Remote Classroom Platform - Monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd backend && npm install",
+    "install:all": "npm run install:frontend && npm run install:backend",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:all": "powershell -ExecutionPolicy Bypass -File start-system-simple.ps1",
+    "dev:all:node": "node scripts/start-all.js",
+    "python:ensure": "powershell -ExecutionPolicy Bypass -File python-services/ensure-python-services.ps1",
+    "setup:local-ai": "setup-local-ai.bat",
+    "start:full": "node scripts/start-full.js",
+    "start:frontend": "cd frontend && npm start",
+    "start:backend": "cd backend && npm start",
+    "build:frontend": "cd frontend && npm run build",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test"
+  },
+  "keywords": [
+    "education",
+    "remote-learning",
+    "video-streaming",
+    "ai-notes",
+    "nextjs",
+    "nodejs"
+  ],
+  "author": "Matrix",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "form-data": "^4.0.4"
+  }
+}

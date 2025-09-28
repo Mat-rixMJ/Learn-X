@@ -1,0 +1,40 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic
+python-multipart
+aiofiles
+aiohttp
+websockets
+
+# AI/ML Core - Use latest stable versions that work with Python 3.13
+torch
+transformers
+sentence-transformers
+openai-whisper
+datasets
+
+# NLP Libraries  
+nltk
+spacy
+textstat
+
+# Audio/Video Processing
+ffmpeg-python
+librosa
+pydub
+
+# Scientific Computing
+numpy
+scipy
+scikit-learn
+
+# Utilities
+python-dotenv
+Pillow
+requests
+tqdm
+
+# Development
+pytest
+black
+flake8

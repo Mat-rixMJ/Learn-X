@@ -1,0 +1,5 @@
+This is a test file for the Local AI Service setup. 
+
+The service should be able to process this text and generate a summary, key points, and questions. This test helps verify that all the required AI models and dependencies are properly installed and functioning.
+
+The Local AI Service uses several open-source models including Whisper for transcription, BART for summarization, and T5 for question generation.

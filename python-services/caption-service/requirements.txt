@@ -1,0 +1,33 @@
+# Python Caption Service Requirements
+# Advanced caption formatting and multi-language processing
+
+# Core FastAPI and async dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+aiohttp==3.9.1
+websockets==12.0
+
+# Subtitle and caption processing
+webvtt-py==0.4.6
+pysrt==1.1.2
+
+# Natural Language Processing
+nltk==3.8.1
+spacy==3.7.2
+# Download spacy model: python -m spacy download en_core_web_sm
+
+# Text processing
+regex==2023.10.3
+python-dateutil==2.8.2
+
+# Development utilities
+python-dotenv==1.0.0
+
+# Optional: Advanced NLP features
+# transformers==4.35.2  # For advanced text processing
+# sentence-transformers==2.2.2  # For semantic similarity
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1

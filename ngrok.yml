@@ -1,0 +1,13 @@
+# ngrok Configuration File
+# Save this as ngrok.yml in your user directory
+
+version: "2"
+authtoken: 32bE8hamWhtyGAAmJhrcwuDo689_5Vjr8KSdNbYwBQgb8qo5P
+
+tunnels:
+  learnx:
+    proto: http
+    addr: 5000
+    schemes: [https]
+    inspect: true
+    host_header: "localhost:5000"

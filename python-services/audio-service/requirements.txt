@@ -1,0 +1,42 @@
+# Python Audio Service Requirements
+# Advanced speech recognition and audio processing
+
+# Core FastAPI and async dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+websockets==12.0
+python-multipart==0.0.6
+
+# Machine Learning and Audio Processing
+torch>=2.0.0
+torchaudio>=2.0.0
+openai-whisper
+faster-whisper
+
+# Audio processing libraries
+librosa==0.10.1
+soundfile==0.12.1
+scipy==1.11.4
+numpy==1.24.3
+noisereduce==3.0.0
+
+# Optional: GPU acceleration (NVIDIA)
+# nvidia-cublas-cu11
+# nvidia-cuda-runtime-cu11
+
+# Development and monitoring
+python-dotenv==1.0.0
+pydantic==2.5.0
+logging==0.4.9.6
+
+# Additional audio utilities
+# pyaudio is optional and requires PortAudio build tools on Windows. Commented out to prevent build failures.
+# Uncomment if you have PortAudio installed or don't need microphone support.
+# pyaudio==0.2.11  # For microphone input (optional)
+webrtcvad==2.0.10  # Voice activity detection
+pydub==0.25.1  # Audio format conversion
+
+# Optional: Advanced features
+# pyannote.audio  # Speaker diarization
+# resemblyzer  # Speaker embeddings
+# silero-vad  # Advanced voice activity detection

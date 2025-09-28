@@ -1,0 +1,16 @@
+# Cloudflare Tunnel Configuration for Learn-X Backend
+# This file configures a Cloudflare tunnel to expose your local backend
+# to the internet securely, allowing Vercel frontend to connect
+
+tunnel: learn-x-backend
+credentials-file: C:\Users\%USERNAME%\.cloudflared\learn-x-backend.json
+
+ingress:
+  # Route all traffic to local backend
+  - hostname: learn-x-backend.trycloudflare.com
+    service: http://localhost:5000
+  # Catch-all rule (required)
+  - service: http_status:404
+
+# Optional: Enable metrics
+metrics: 0.0.0.0:2000
