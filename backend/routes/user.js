@@ -51,27 +51,40 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       ORDER BY created_at DESC
       LIMIT 10
     `;
+
+    // Get recent activities
+    const activitiesQuery = `
+      SELECT 
+        activity_type, activity_title, activity_description, created_at
+      FROM activity_log
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+      LIMIT 5
+    `;
     
     // Get learning progress stats
     const progressQuery = `
       SELECT 
         COUNT(DISTINCT e.class_id) as total_classes,
         COUNT(DISTINCT rl.id) as total_lectures,
-        COUNT(DISTINCT an.id) as total_notes
+        COUNT(DISTINCT an.id) as total_notes,
+        COALESCE(AVG(CAST(sp.performance_metrics->>'score' AS INTEGER)), 0) as avg_score
       FROM class_enrollments e
       LEFT JOIN recorded_lectures rl ON e.class_id = rl.class_id
       LEFT JOIN ai_notes an ON an.user_id = $1
+      LEFT JOIN student_progress sp ON sp.student_id = $1 AND sp.class_id = e.class_id
       WHERE e.student_id = $1 AND e.is_active = true
     `;
 
     const db = pool;
     
     // Execute all queries
-    const [enrolledClasses, upcomingClasses, notifications, progress] = await Promise.all([
+    const [enrolledClasses, upcomingClasses, notifications, progress, activities] = await Promise.all([
       db.query(enrolledClassesQuery, [userId]),
       db.query(upcomingClassesQuery, [userId]),
       db.query(notificationsQuery, [userId]),
-      db.query(progressQuery, [userId])
+      db.query(progressQuery, [userId]),
+      db.query(activitiesQuery, [userId])
     ]);
 
     // Format response
@@ -85,10 +98,12 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       enrolledClasses: enrolledClasses.rows,
       upcomingClasses: upcomingClasses.rows,
       notifications: notifications.rows,
+      recentActivities: activities.rows,
       stats: {
         totalClasses: parseInt(progress.rows[0]?.total_classes || 0),
         totalLectures: parseInt(progress.rows[0]?.total_lectures || 0),
-        totalNotes: parseInt(progress.rows[0]?.total_notes || 0)
+        totalNotes: parseInt(progress.rows[0]?.total_notes || 0),
+        avgScore: Math.round(parseFloat(progress.rows[0]?.avg_score || 0))
       }
     };
 
@@ -182,6 +197,77 @@ router.get('/notifications', authenticateToken, async (req, res) => {
       message: 'Failed to fetch notifications',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+});
+
+// POST /api/user/profile - Update student profile and set profile_complete
+router.post('/profile', authenticateToken, async (req, res) => {
+  try {
+    const { full_name, bio, contact } = req.body;
+    await pool.query(
+      'UPDATE users SET full_name = $1, profile_complete = true WHERE id = $2',
+      [full_name, req.user.id]
+    );
+    // Optionally save bio/contact to a new table or as JSONB in users
+    res.json({ success: true, message: 'Profile updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// POST /api/user/enroll - Enroll student in selected classes
+router.post('/enroll', authenticateToken, async (req, res) => {
+  try {
+    const { classIds } = req.body;
+    if (!Array.isArray(classIds)) return res.status(400).json({ success: false, message: 'classIds must be array' });
+    for (const classId of classIds) {
+      await pool.query(
+        'INSERT INTO class_enrollments (class_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [classId, req.user.id]
+      );
+    }
+    res.json({ success: true, message: 'Enrolled in classes' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// GET /api/user/class/:classId/students - Teacher: Get students in a class
+router.get('/class/:classId/students', authenticateToken, async (req, res) => {
+  try {
+    const { classId } = req.params;
+    // Only allow teacher of the class
+    const classRes = await pool.query('SELECT * FROM classes WHERE id = $1', [classId]);
+    if (!classRes.rows.length || classRes.rows[0].teacher_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    const students = await pool.query(
+      'SELECT u.id, u.username, u.full_name FROM class_enrollments e JOIN users u ON e.student_id = u.id WHERE e.class_id = $1',
+      [classId]
+    );
+    res.json({ success: true, students: students.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// POST /api/user/class/:classId/add-student - Teacher: Add student to a class
+router.post('/class/:classId/add-student', authenticateToken, async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { studentId } = req.body;
+    // Only allow teacher of the class
+    const classRes = await pool.query('SELECT * FROM classes WHERE id = $1', [classId]);
+    if (!classRes.rows.length || classRes.rows[0].teacher_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+    await pool.query(
+      'INSERT INTO class_enrollments (class_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [classId, studentId]
+    );
+    res.json({ success: true, message: 'Student added to class' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 

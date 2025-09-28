@@ -126,7 +126,7 @@ export default function LiveSessionPage() {
       const token = localStorage.getItem('token');
       if (!token) {
         console.log('No token found - redirecting to login');
-        router.push('/auth/login');
+        router.push('/login');
         return;
       }
 
@@ -138,7 +138,7 @@ export default function LiveSessionPage() {
           debugTokenInfo(token);
         }
         localStorage.removeItem('token');
-        router.push('/auth/login');
+        router.push('/login');
         return;
       }
 

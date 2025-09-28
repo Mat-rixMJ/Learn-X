@@ -3,47 +3,21 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { authenticatedFetch, validateToken, debugTokenInfo, clearExpiredToken } from '@/utils/auth';
+import { apiService, type DashboardData as ApiDashboardData } from '@/utils/api';
+import { validateToken, debugTokenInfo, clearExpiredToken } from '@/utils/auth';
 
-interface DashboardData {
-  user: {
-    id: string;
-    username: string;
-    email: string;
-    role: string;
-  };
-  enrolledClasses: Array<{
-    id: string;
-    title: string;
-    description: string;
-    instructor_name: string;
-    schedule_start: string;
-    schedule_end: string;
-  }>;
-  upcomingClasses: Array<{
+interface ExtendedDashboardData extends ApiDashboardData {
+  upcomingClasses?: Array<{
     id: string;
     title: string;
     instructor_name: string;
     schedule_start: string;
     schedule_end: string;
   }>;
-  notifications: Array<{
-    id: string;
-    title: string;
-    message: string;
-    type: string;
-    is_read: boolean;
-    created_at: string;
-  }>;
-  stats: {
-    totalClasses: number;
-    totalLectures: number;
-    totalNotes: number;
-  };
 }
 
 export default function Dashboard() {
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardData, setDashboardData] = useState<ExtendedDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -52,12 +26,18 @@ export default function Dashboard() {
     // Clear any expired tokens on component mount
     clearExpiredToken();
     fetchDashboardData();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // Redirect teachers to their dedicated teacher dashboard
     if (dashboardData?.user.role === 'teacher') {
+      console.log('Teacher detected, redirecting to teacher dashboard');
       router.push('/teacher-dashboard');
+    }
+    // Redirect admins to admin dashboard (if exists)
+    else if (dashboardData?.user.role === 'admin') {
+      console.log('Admin detected, redirecting to admin dashboard');
+      router.push('/admin-dashboard');
     }
   }, [dashboardData, router]);
 
@@ -76,23 +56,25 @@ export default function Dashboard() {
       
       // Validate token before making the request
       const tokenInfo = validateToken(token);
-      if (!tokenInfo.valid) {
-        console.log('Token validation failed:', tokenInfo.error);
+      if (!tokenInfo.valid && tokenInfo.expired) {
+        console.log('Token expired, redirecting to login:', tokenInfo.error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         router.push('/login');
         return;
       }
+      
+      // For other validation errors, try to proceed with the API call
+      if (!tokenInfo.valid) {
+        console.warn('Token validation warning (but proceeding):', tokenInfo.error);
+      }
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-      const response = await authenticatedFetch(`${apiUrl}/api/user/dashboard`, {
-        method: 'GET'
-      });
+      const result = await apiService.getDashboard();
 
-      const data = await response.json();
-
-      if (data && data.success) {
-        setDashboardData(data.data);
+      if (result.success && result.data) {
+        setDashboardData(result.data);
       } else {
-        setError(data?.message || 'Failed to fetch dashboard data');
+        setError(result.message || 'Failed to fetch dashboard data');
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err);
@@ -180,7 +162,7 @@ export default function Dashboard() {
               <span className="text-3xl mr-3">📅</span> Upcoming Classes
             </h3>
             <ul className="space-y-3 mb-6">
-              {dashboardData?.upcomingClasses.length ? (
+              {dashboardData?.upcomingClasses?.length ? (
                 dashboardData.upcomingClasses.slice(0, 3).map((classItem) => (
                   <li key={classItem.id} className="text-gray-600 bg-gray-50 p-3 rounded-xl">
                     <div className="font-medium">{classItem.title}</div>

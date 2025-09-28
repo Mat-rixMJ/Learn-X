@@ -81,7 +81,7 @@ router.post('/login', async (req, res) => {
   }
   
   try {
-    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const result = await pool.query('SELECT * FROM users WHERE username = $1 AND is_active = true', [username]);
     
     if (result.rows.length === 0) {
       return res.status(401).json({ 
@@ -92,6 +92,7 @@ router.post('/login', async (req, res) => {
     
     const user = result.rows[0];
     
+    // Additional check for account status
     if (!user.is_active) {
       return res.status(401).json({ 
         success: false,
@@ -108,8 +109,47 @@ router.post('/login', async (req, res) => {
       });
     }
     
+    // Check profile completion status
+    let profileComplete = user.profile_complete;
+    let redirectTo = '';
+    
+    if (!profileComplete) {
+      // Check actual profile completion based on role
+      if (user.role === 'student') {
+        const studentProfileResult = await pool.query(
+          'SELECT id FROM student_profiles WHERE user_id = $1',
+          [user.id]
+        );
+        profileComplete = studentProfileResult.rows.length > 0;
+        redirectTo = profileComplete ? '/simple-dashboard' : '/complete-student-profile';
+      } else if (user.role === 'teacher') {
+        const teacherProfileResult = await pool.query(
+          'SELECT id FROM teacher_profiles WHERE user_id = $1',
+          [user.id]
+        );
+        profileComplete = teacherProfileResult.rows.length > 0;
+        redirectTo = profileComplete ? '/teacher-dashboard' : '/complete-teacher-profile';
+      } else {
+        // Admin or other roles
+        profileComplete = true;
+        redirectTo = '/teacher-dashboard';
+      }
+      
+      // Update profile_complete flag if profile is actually complete
+      if (profileComplete && !user.profile_complete) {
+        await pool.query(
+          'UPDATE users SET profile_complete = true WHERE id = $1',
+          [user.id]
+        );
+      }
+    } else {
+      // Profile already marked as complete
+      redirectTo = user.role === 'teacher' ? '/teacher-dashboard' : '/simple-dashboard';
+    }
+    
     const token = jwt.sign(
       { 
+        userId: user.id,
         id: user.id, 
         username: user.username,
         email: user.email,
@@ -128,8 +168,10 @@ router.post('/login', async (req, res) => {
         username: user.username, 
         email: user.email,
         fullName: user.full_name,
-        role: user.role 
-      } 
+        role: user.role,
+        profile_complete: profileComplete
+      },
+      redirectTo: redirectTo
     });
   } catch (err) {
     console.error('Login error:', err);

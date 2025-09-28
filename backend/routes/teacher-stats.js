@@ -10,15 +10,41 @@ router.get('/stats', authenticateToken, authorizeRoles('teacher'), async (req, r
   try {
     const teacherId = req.user.id;
 
-    // Get active classes count
+    // Get total classes count (all classes created by teacher)
     const classesQuery = `
-      SELECT COUNT(*) as active_classes 
+      SELECT COUNT(*) as total_classes 
       FROM classes 
-      WHERE teacher_id = $1 AND is_active = true
+      WHERE teacher_id = $1
     `;
     const classesResult = await pool.query(classesQuery, [teacherId]);
 
-    // Get total lectures count (join through classes since recorded_lectures has class_id not teacher_id)
+    // Get active students count across all teacher's classes
+    const studentsQuery = `
+      SELECT COUNT(DISTINCT ce.student_id) as active_students
+      FROM class_enrollments ce
+      INNER JOIN classes c ON ce.class_id = c.id
+      WHERE c.teacher_id = $1 AND ce.is_active = true
+    `;
+    const studentsResult = await pool.query(studentsQuery, [teacherId]);
+
+    // Get active live sessions count
+    const liveSessionsQuery = `
+      SELECT COUNT(*) as live_sessions 
+      FROM live_sessions 
+      WHERE teacher_id = $1 AND status = 'active'
+    `;
+    const liveSessionsResult = await pool.query(liveSessionsQuery, [teacherId]);
+
+    // Get assignments count
+    const assignmentsQuery = `
+      SELECT COUNT(*) as assignments 
+      FROM assignments 
+      WHERE teacher_id = $1
+    `;
+    const assignmentsResult = await pool.query(assignmentsQuery, [teacherId]);
+    const assignmentsCount = parseInt(assignmentsResult.rows[0].assignments);
+
+    // Get total lectures count for additional info
     const lecturesQuery = `
       SELECT COUNT(*) as total_lectures 
       FROM recorded_lectures rl
@@ -26,26 +52,6 @@ router.get('/stats', authenticateToken, authorizeRoles('teacher'), async (req, r
       WHERE c.teacher_id = $1
     `;
     const lecturesResult = await pool.query(lecturesQuery, [teacherId]);
-
-    // Get total students count across all teacher's classes (using class_enrollments table)
-    const studentsQuery = `
-      SELECT COUNT(DISTINCT student_id) as total_students
-      FROM class_enrollments ce
-      INNER JOIN classes c ON ce.class_id = c.id
-      WHERE c.teacher_id = $1 AND ce.is_active = true
-    `;
-    const studentsResult = await pool.query(studentsQuery, [teacherId]);
-
-    // Get average rating (placeholder for now - you can implement ratings later)
-    const avgRating = 4.8; // Static value for now
-
-    // Get scheduled classes count
-    const scheduledQuery = `
-      SELECT COUNT(*) as scheduled_classes 
-      FROM scheduled_classes 
-      WHERE teacher_id = $1 AND scheduled_at > NOW()
-    `;
-    const scheduledResult = await pool.query(scheduledQuery, [teacherId]);
 
     // Get recent activity (join through classes)
     const recentLecturesQuery = `
@@ -62,11 +68,11 @@ router.get('/stats', authenticateToken, authorizeRoles('teacher'), async (req, r
       success: true,
       data: {
         stats: {
-          activeClasses: parseInt(classesResult.rows[0].active_classes),
-          totalLectures: parseInt(lecturesResult.rows[0].total_lectures),
-          totalStudents: parseInt(studentsResult.rows[0].total_students),
-          scheduledClasses: parseInt(scheduledResult.rows[0].scheduled_classes),
-          avgRating: avgRating
+          totalClasses: parseInt(classesResult.rows[0].total_classes),
+          activeStudents: parseInt(studentsResult.rows[0].active_students),
+          liveSessions: parseInt(liveSessionsResult.rows[0].live_sessions),
+          assignments: assignmentsCount,
+          totalLectures: parseInt(lecturesResult.rows[0].total_lectures)
         },
         recentActivity: recentLecturesResult.rows
       }

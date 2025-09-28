@@ -133,6 +133,14 @@ const scheduledClassesRoutes = require('./routes/scheduled-classes');
 const aiNotesRoutes = require('./routes/ai-notes');
 const breakoutRoomsRoutes = require('./routes/breakout-rooms');
 const translationRoutes = require('./routes/translation');
+const assignmentsRoutes = require('./routes/assignments');
+const contentRoutes = require('./routes/content');
+const analyticsRoutes = require('./routes/analytics');
+const profilesRoutes = require('./routes/profiles');
+const studentDashboardRoutes = require('./routes/student-dashboard');
+const teacherDashboardRoutes = require('./routes/teacher-dashboard');
+const schedulingRoutes = require('./routes/scheduling');
+const notificationsRoutes = require('./routes/notifications');
 const { pythonServicesEnabled } = require('./config/features');
 let pythonServicesRouter = null;
 let setupWebSocketProxy = null;
@@ -153,6 +161,14 @@ app.use('/api/scheduled', scheduledClassesRoutes);
 app.use('/api/ai-notes', aiNotesRoutes);
 app.use('/api/breakout-rooms', breakoutRoomsRoutes);
 app.use('/api/translate', translationRoutes);
+app.use('/api/assignments', assignmentsRoutes);
+app.use('/api/content', contentRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/profiles', profilesRoutes);
+app.use('/api/student', studentDashboardRoutes);
+app.use('/api/teacher-dashboard', teacherDashboardRoutes);
+app.use('/api/scheduling', schedulingRoutes);
+app.use('/api/notifications', notificationsRoutes);
 if (pythonServicesEnabled && pythonServicesRouter) {
   app.use('/api/python-services', pythonServicesRouter);
   if (systemHealthRoute) {
@@ -726,4 +742,9 @@ server.listen(port, async () => {
   
   // Initialize database on Render
   await initializeDatabase();
+  
+  // Start notification service for dual timing system (45min + 5min before class)
+  const NotificationService = require('./services/notificationService');
+  const notificationService = new NotificationService();
+  console.log('🔔 Dual notification system started (45min + 5min reminders)');
 });

@@ -14,6 +14,7 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
     is_active BOOLEAN DEFAULT true,
+    profile_complete BOOLEAN DEFAULT false,
     email_verified BOOLEAN DEFAULT false,
     profile_picture VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

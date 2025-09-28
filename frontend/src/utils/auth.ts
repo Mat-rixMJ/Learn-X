@@ -90,7 +90,8 @@ export async function refreshTokenIfNeeded(currentToken: string | null): Promise
   }
 
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`, {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const response = await fetch(`${apiUrl}/api/auth/refresh`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${currentToken}`,
@@ -132,13 +133,17 @@ export async function authenticatedFetch(
     throw new Error('No authentication token available');
   }
 
+  // Construct full URL if relative URL is provided
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const fullUrl = url.startsWith('http') ? url : `${apiUrl}${url}`;
+
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
     ...options.headers,
   };
 
-  const response = await fetch(url, {
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
   });
@@ -153,7 +158,7 @@ export async function authenticatedFetch(
     
     // Redirect to login if in browser environment
     if (typeof window !== 'undefined') {
-      window.location.href = '/auth/login';
+      window.location.href = '/login';
     }
     
     throw new Error('Authentication failed - redirecting to login');

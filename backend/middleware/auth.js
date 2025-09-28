@@ -118,8 +118,35 @@ const optionalAuth = async (req, res, next) => {
   }
 };
 
+// Shorthand middleware for common role checks
+const requireStudent = authorizeRoles('student');
+const requireTeacher = authorizeRoles('teacher'); 
+const requireAdmin = authorizeRoles('admin');
+const requireTeacherOrAdmin = authorizeRoles('teacher', 'admin');
+const requireStudentOrTeacher = authorizeRoles('student', 'teacher');
+
+// Middleware to prevent role escalation
+const preventRoleChange = (req, res, next) => {
+  if (req.body.role && req.body.role !== req.user.role) {
+    // Only admins can change roles
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only administrators can change user roles'
+      });
+    }
+  }
+  next();
+};
+
 module.exports = {
   authenticateToken,
   authorizeRoles,
-  optionalAuth
+  optionalAuth,
+  requireStudent,
+  requireTeacher,
+  requireAdmin,
+  requireTeacherOrAdmin,
+  requireStudentOrTeacher,
+  preventRoleChange
 };

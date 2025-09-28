@@ -2,21 +2,30 @@
 
 ## Project Overview
 
-Learn-X is an AI-powered remote classroom platform with monorepo architecture:
+Learn-X is an AI-powered remote classroom platform with hybrid microservices architecture:
 
 - **Frontend**: Next.js 15 + TypeScript + Tailwind CSS (port 3000)
 - **Backend**: Node.js + Express + Socket.IO (port 5000)
+- **Python Services**: FastAPI microservices for AI processing (ports 8001-8004)
 - **Database**: PostgreSQL with UUID primary keys
-- **AI Engine**: Google Gemini API for video/audio note generation
+- **AI Stack**: Hybrid Gemini API + local Python AI (Whisper, NLLB-200, spaCy)
 - **Real-time**: WebRTC for live streaming, Socket.IO for communication
 
 ## Architecture Patterns
 
-### Monorepo Structure
+### Hybrid Microservices Structure
 
-- Root `package.json` manages workspaces (`frontend/`, `backend/`)
-- Use `npm run install:all` for full setup, not individual `npm install`
-- Scripts prefixed with workspace: `npm run dev:frontend`, `npm run dev:backend`
+- **Monorepo**: Root `package.json` manages Node.js workspaces (`frontend/`, `backend/`)
+- **Python Services**: Independent FastAPI services in `python-services/` directory
+- **Service Orchestration**: `npm run start:full` launches entire stack with health checks
+- **Graceful Degradation**: Backend falls back to Gemini API if Python services unavailable
+
+### Microservices Port Allocation
+
+- **Audio Service**: `localhost:8001` - Whisper speech recognition
+- **Translation Service**: `localhost:8002` - NLLB-200 multilingual translation
+- **AI Notes Service**: `localhost:8003` - Enhanced notes generation
+- **Caption Service**: `localhost:8004` - WebVTT/SRT caption generation
 
 ### Database Conventions
 
@@ -37,23 +46,62 @@ Routes in `backend/routes/` follow RESTful + real-time patterns:
 ### Authentication Flow
 
 ```javascript
-// All protected routes use:
+// All protected routes use role-based middleware:
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 router.post("/endpoint", authenticateToken, authorizeRoles("teacher"), handler);
+
+// Shorthand middleware available:
+const {
+  requireStudent,
+  requireTeacher,
+  requireAdmin,
+} = require("../middleware/auth");
+router.get("/student-only", authenticateToken, requireStudent, handler);
 ```
+
+### Role-Based Access Control
+
+- **Frontend Route Protection**: Dashboard components verify user role from localStorage and redirect appropriately
+- **Backend Role Validation**: Authentication middleware fetches user role from database, not frontend input
+- **Database Constraints**: Role field constrained to `('student', 'teacher', 'admin')` with uniqueness on username/email
+- **Login Response**: Includes `redirectTo` field for proper frontend routing based on user role
 
 ## Development Workflows
 
-### Local Development
+### Full Stack Development (Recommended)
 
-```bash
+```powershell
 # Complete setup (from root)
 npm run install:all
-# Database setup (run once)
-cd backend && node ../database/create-users-table.js
-# Start development (2 terminals)
-npm run dev:backend  # Terminal 1
+
+# Setup Python microservices (one-time)
+cd python-services
+.\setup-virtual-env.ps1
+
+# Start entire stack with orchestration
+npm run start:full
+# This launches: Python services → Backend → Frontend with health checks
+```
+
+### Manual Service Management
+
+```powershell
+# Start Python services only
+cd python-services && .\start-all-services.ps1
+
+# Traditional Node.js development (2 terminals)
+npm run dev:backend  # Terminal 1 - requires Python services running
 npm run dev:frontend # Terminal 2
+```
+
+### Database Setup
+
+```powershell
+# Minimal required tables
+cd backend
+node ../database/create-users-table.js
+node ../database/create-ai-notes-table.js
+node seed-dev-users.js  # Optional dev data
 ```
 
 ### Docker Development
@@ -88,14 +136,37 @@ cloudflared tunnel login
 .\deploy-vercel-frontend.bat   # Frontend deployment only
 ```
 
+### Python Environment Management
+
+```powershell
+# One-time setup creates venv with all AI dependencies
+cd python-services && .\setup-virtual-env.ps1
+
+# Automatic service health monitoring
+.\ensure-python-services.ps1 -TimeoutSeconds 300
+
+# Model size configuration for performance tuning
+$env:WHISPER_MODEL_SIZE = "small"  # tiny, base, small, medium, large
+$env:TRANSLATION_MODEL = "facebook/nllb-200-distilled-600M"
+```
+
 ## Key Integrations
 
-### AI Service Pattern
+### Hybrid AI Processing Pipeline
 
-- Video uploads → `backend/services/gemini-ai.js`
-- Gemini processes video directly (no local transcription)
-- Returns structured JSON: `{summary, keyPoints, timestamp, quiz}`
-- Error handling includes fallback to text-based analysis
+- **Primary Path**: Video → Python Audio Service (Whisper) → AI Notes Service → Enhanced output
+- **Fallback Path**: Video → Gemini API direct processing
+- **Integration Point**: `backend/services/local-ai-microservice.js` orchestrates service calls
+- **Service Health**: `scripts/start-full.js` ensures all services healthy before backend starts
+
+### Python Service Communication
+
+```javascript
+// Backend calls Python services via HTTP
+const response = await axios.post("http://localhost:8001/transcribe", formData);
+// Graceful fallback to Gemini if Python services unavailable
+if (!response.ok) return await geminiAI.processVideoFile(videoPath);
+```
 
 ### WebRTC Live Streaming
 
@@ -159,6 +230,16 @@ Run scripts in order from `database/` directory:
 1. `init.sql` (Docker entrypoint)
 2. `schema.sql` (table definitions)
 3. `create-*-table.js` (individual table setup)
+
+### Service Health Monitoring
+
+```powershell
+# Check all Python service health with detailed status
+python check-services-health.py
+
+# Monitor services from Node.js orchestrator
+node scripts/start-full.js  # Includes health checks with retries
+```
 
 ## Common Patterns to Follow
 
