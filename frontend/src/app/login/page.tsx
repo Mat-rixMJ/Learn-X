@@ -10,6 +10,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setIsLoading(true);
 
     try {
@@ -35,34 +37,37 @@ export default function Login() {
             profileComplete: result.data!.user.profile_completed,
           });
           
-          // Determine redirect based on profile completion and role
-          let redirectPath = '/dashboard';
+          // Use redirectTo from backend if available, otherwise determine based on profile completion and role
+          let redirectPath = (result.data as any)?.redirectTo || '/dashboard';
           
-          if (!result.data!.user.profile_completed) {
-            // Profile not complete, redirect to profile completion
-            if (result.data!.user.role === 'student') {
-              redirectPath = '/complete-student-profile';
-            } else if (result.data!.user.role === 'teacher') {
-              redirectPath = '/complete-teacher-profile';
-            }
-          } else {
-            // Profile complete, redirect based on role
-            if (result.data!.user.role === 'student') {
-              redirectPath = '/student';
-            } else if (result.data!.user.role === 'teacher') {
-              redirectPath = '/teacher/dashboard';
-            } else if (result.data!.user.role === 'admin') {
-              redirectPath = '/admin/dashboard';
+          if (!redirectPath || redirectPath === '/dashboard') {
+            if (!result.data!.user.profile_completed) {
+              // Profile not complete, redirect to profile completion
+              if (result.data!.user.role === 'student') {
+                redirectPath = '/complete-student-profile';
+              } else if (result.data!.user.role === 'teacher') {
+                redirectPath = '/complete-teacher-profile';
+              }
+            } else {
+              // Profile complete, redirect based on role
+              if (result.data!.user.role === 'student') {
+                redirectPath = '/student-dashboard';
+              } else if (result.data!.user.role === 'teacher') {
+                redirectPath = '/teacher-dashboard';
+              } else if (result.data!.user.role === 'admin') {
+                redirectPath = '/admin/dashboard';
+              }
             }
           }
           
           router.push(redirectPath);
         }, 100);
         
+        // Show success message
         if (result.data!.user.profile_completed) {
-          alert('Login successful!');
+          setSuccess('Login successful! Redirecting to your dashboard...');
         } else {
-          alert('Login successful! Please complete your profile to continue.');
+          setSuccess('Login successful! Redirecting to complete your profile...');
         }
       } else {
         // Handle server errors
@@ -99,6 +104,18 @@ export default function Login() {
           <p className="text-gray-700 text-base font-medium">Sign in to continue your learning journey</p>
         </div>
 
+        {/* Success Message */}
+        {success && (
+          <div className="bg-green-50 border-l-4 border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">{success}</span>
+            </div>
+          </div>
+        )}
+
         {/* Error Message with improved design */}
         {error && (
           <div className="bg-red-50 border-l-4 border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 animate-shake">
@@ -129,6 +146,7 @@ export default function Login() {
                   setUsername(e.target.value);
                   setIsTyping(true);
                   if (error) setError('');
+                  if (success) setSuccess('');
                 }}
                 onBlur={() => setIsTyping(false)}
                 className={`w-full px-4 py-3 pl-12 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-base text-gray-900 bg-white placeholder-gray-500 ${
@@ -162,6 +180,7 @@ export default function Login() {
                   setPassword(e.target.value);
                   setIsTyping(true);
                   if (error) setError('');
+                  if (success) setSuccess('');
                 }}
                 onBlur={() => setIsTyping(false)}
                 className={`w-full px-4 py-3 pl-12 pr-12 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-base text-gray-900 bg-white placeholder-gray-500 ${
